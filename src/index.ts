@@ -132,6 +132,62 @@ async function formatResponse(parts: any[]): Promise<string> {
   return output.join('\n').trim();
 }
 
+async function runInit(sessionId: string): Promise<void> {
+  console.log('Running /init command (analyzing project and creating AGENTS.md)...');
+  const response = await fetchWithTimeout(`${SERVER_URL}/session/${sessionId}/init`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({})
+  }, 180000);
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to run /init (${response.status}): ${error}`);
+  }
+
+  const result = await response.json();
+  console.log('\n' + (result ? 'AGENTS.md created/updated successfully.' : 'No changes made to AGENTS.md.') + '\n');
+}
+
+async function runModel(sessionId: string): Promise<void> {
+  console.log('Fetching available models...');
+  const response = await fetchWithTimeout(`${SERVER_URL}/models`, {
+    method: 'GET',
+    headers: getAuthHeaders()
+  }, 10000);
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to fetch models (${response.status}): ${error}`);
+  }
+
+  const models = await response.json();
+  console.log('\nAvailable models:');
+  for (const provider of models) {
+    console.log(`\n${provider.name}:`);
+    for (const model of provider.models || []) {
+      console.log(`  - ${model.id}: ${model.name || model.description || ''}`);
+    }
+  }
+  console.log();
+}
+
+async function runUndo(sessionId: string): Promise<void> {
+  console.log('Running /undo command...');
+  const response = await fetchWithTimeout(`${SERVER_URL}/session/${sessionId}/undo`, {
+    method: 'POST',
+    headers: getAuthHeaders()
+  }, 30000);
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to run /undo (${response.status}): ${error}`);
+  }
+
+  const result = await response.json();
+  console.log('\n' + (result.undone ? 'Last message undone successfully.' : 'Nothing to undo.') + '\n');
+}
+
 async function main() {
   const serverProcess = await startOpenCodeServer();
 
@@ -149,10 +205,27 @@ async function main() {
         rl.question('> ', async (input) => {
           if (input.trim()) {
             try {
-              console.log('Sending...');
-              const response = await sendMessage(sessionId, input);
-              const formatted = await formatResponse(response.parts);
-              console.log('\n' + formatted + '\n');
+              const trimmed = input.trim();
+              
+              if (trimmed === '/init') {
+                await runInit(sessionId);
+              } else if (trimmed === '/model' || trimmed === '/models') {
+                await runModel(sessionId);
+              } else if (trimmed === '/undo') {
+                await runUndo(sessionId);
+              } else if (trimmed === '/help') {
+                console.log('\nAvailable commands:');
+                console.log('  /init   - Analyze project and create/update AGENTS.md');
+                console.log('  /model  - List available models');
+                console.log('  /undo   - Undo last message');
+                console.log('  /help   - Show this help message');
+                console.log();
+              } else {
+                console.log('Sending...');
+                const response = await sendMessage(sessionId, input);
+                const formatted = await formatResponse(response.parts);
+                console.log('\n' + formatted + '\n');
+              }
             } catch (error: any) {
               console.error('Error:', error.message);
             }
