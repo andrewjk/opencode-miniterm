@@ -35,24 +35,12 @@ function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
 let seenParts = new Set();
 let firstText = true;
 let lastEventTime = Date.now();
-let statusMessage = "";
 let statusLineCount = 0;
-let diffLineCount = 0;
-const EVENT_TIMEOUT_MS = 120000;
 
 function clearStatusLine(): void {
-	if (statusMessage) {
-		const totalLines = statusLineCount + 1;
-		process.stdout.write(`\r${" ".repeat(statusMessage.length)}\r`);
-		if (totalLines > 1) {
-			process.stdout.write(`\x1b[${totalLines}A\x1b[J`);
-		}
-		statusMessage = "";
+	if (statusLineCount > 0) {
+		process.stdout.write(`\x1b[${statusLineCount}A\x1b[J`);
 		statusLineCount = 0;
-	}
-	if (diffLineCount > 0) {
-		process.stdout.write(`\x1b[${diffLineCount}A\x1b[J`);
-		diffLineCount = 0;
 	}
 }
 
@@ -67,9 +55,9 @@ function processPart(part: Part, delta: string | undefined): void {
 	switch (part.type) {
 		case "step-start":
 			clearStatusLine();
-			process.stdout.write("⚙️ Processing...");
-			statusMessage = "⚙️ Processing...";
-			statusLineCount = 0;
+			console.log();
+			console.log("⚙️ Processing...");
+			statusLineCount = 2;
 			break;
 
 		case "reasoning":
@@ -89,6 +77,7 @@ function processPart(part: Part, delta: string | undefined): void {
 		case "text":
 			if (firstText) {
 				firstText = false;
+				break;
 			}
 			if (delta && !seenParts.has(partKey)) {
 				clearStatusLine();
@@ -100,7 +89,7 @@ function processPart(part: Part, delta: string | undefined): void {
 			if (delta) {
 				process.stdout.write(delta);
 			} else if (part.text && !seenParts.has(partKey + "_final")) {
-				console.log(`${part.text}`);
+				console.log(part.text);
 				seenParts.add(partKey + "_final");
 			} else if (part.text) {
 				console.log();
@@ -109,11 +98,16 @@ function processPart(part: Part, delta: string | undefined): void {
 
 		case "step-finish":
 			clearStatusLine();
-			process.stdout.write("✅ Done\n");
+			console.log();
+			console.log("✅ Done");
+			statusLineCount = 2;
 			break;
 
 		case "tool_use":
+			clearStatusLine();
+			console.log();
 			console.log(`🔧 Using tool: ${part.name || "unknown"}`);
+			statusLineCount = 2;
 			break;
 
 		default:
@@ -165,7 +159,7 @@ function processEvent(event: ServerEvent): void {
 					const stats = [addStr, delStr].filter(Boolean).join(" ");
 					console.log(`  ${statusIcon} ${file.file} (${statusLabel}) ${stats}`);
 				}
-				diffLineCount = diff.length;
+				statusLineCount = diff.length;
 			}
 			break;
 
@@ -499,7 +493,7 @@ async function main() {
 	try {
 		const sessionId = await createSession();
 		startEventListener();
-		console.log("Session created. Type your message and press Enter (Ctrl+C to exit):\n");
+		console.log("Session created. Type your message and press Enter (Ctrl+C to exit):");
 
 		const rl = readline.createInterface({
 			input: process.stdin,
@@ -508,7 +502,7 @@ async function main() {
 
 		const ask = (): Promise<void> => {
 			return new Promise((resolve) => {
-				rl.question("> ", async (input) => {
+				rl.question("\n> ", async (input) => {
 					if (input.trim()) {
 						try {
 							const trimmed = input.trim();
@@ -527,9 +521,8 @@ async function main() {
 								console.log("  /help   - Show this help message");
 								console.log();
 							} else {
-								statusMessage = "👉 Sending...";
+								console.log("👉 Sending...");
 								statusLineCount = 1;
-								console.log(`${statusMessage}`);
 
 								await sendMessage(sessionId, input);
 							}
