@@ -214,6 +214,15 @@ Typically used to undo the last assistant message by fetching messages first, th
 - `tool_result` - Contains result of tool execution (can be filtered out)
 - Display reasoning and text parts to the user for transparency
 
+### Server-Sent Events (SSE)
+- Connect to event stream at `/event` for real-time updates
+- Events include: `message.part.updated`, `session.status`, `session.updated`, `message.updated`, `session.diff`, `session.idle`
+- Event structure: `{ type: string, properties: {...} }`
+- Parts can be streamed via `message.part.updated` events with delta updates
+- Delta is at `event.properties.delta`, NOT in `event.properties.part.delta`
+- Use `seenParts` set to track processed parts and avoid duplicate display
+- Delta updates allow streaming reasoning and text for better UX
+
 ### Error Handling
 - Server returns 401 Unauthorized when authentication is missing/invalid
 - Handle connection errors (server may not be ready yet)

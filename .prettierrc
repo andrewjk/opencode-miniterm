@@ -1,0 +1,16 @@
+{
+	"useTabs": true,
+	"printWidth": 100,
+	"trailingComma": "all",
+	"plugins": ["@trivago/prettier-plugin-sort-imports"],
+	"importOrder": ["^[../]", "^[./]"],
+	"importOrderSortSpecifiers": true,
+	"overrides": [
+		{
+			"files": ["*.json", "*.jsonc"],
+			"options": {
+				"trailingComma": "none"
+			}
+		}
+	]
+}
