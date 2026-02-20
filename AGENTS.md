@@ -205,9 +205,14 @@ Typically used to undo the last assistant message by fetching messages first, th
 
 ### Response Format
 - Response has `{ info, parts }` structure
-- Parts can be: `text`, `tool_use`, or `tool_result`
-- Filter out `tool_use` and `tool_result` parts for display to user
-- Text parts contain the AI's response
+- Parts can be: `step-start`, `reasoning`, `text`, `step-finish`, `tool_use`, `tool_result`
+- `step-start` - Indicates beginning of a thinking/processing step
+- `reasoning` - AI's internal reasoning/thinking process (shows "💭 Thinking...")
+- `text` - The actual AI response to display to the user
+- `step-finish` - Indicates completion of a thinking/processing step
+- `tool_use` - Indicates an AI tool is being used
+- `tool_result` - Contains result of tool execution (can be filtered out)
+- Display reasoning and text parts to the user for transparency
 
 ### Error Handling
 - Server returns 401 Unauthorized when authentication is missing/invalid

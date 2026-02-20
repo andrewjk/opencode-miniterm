@@ -1,3 +1,4 @@
+import type { HeadersInit } from 'bun';
 import { spawn } from 'child_process';
 import readline from 'readline';
 
@@ -5,13 +6,101 @@ const SERVER_URL = 'http://127.0.0.1:4096';
 const AUTH_USERNAME = process.env.OPENCODE_SERVER_USERNAME || 'opencode';
 const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || '';
 
-function getAuthHeaders(): HeadersInit {
-  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
+  const headers: HeadersInit = {};
   if (AUTH_PASSWORD) {
     const credentials = Buffer.from(`${AUTH_USERNAME}:${AUTH_PASSWORD}`).toString('base64');
     headers['Authorization'] = `Basic ${credentials}`;
   }
+  if (includeContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
   return headers;
+}
+
+function processPart(part: any): void {
+  switch (part.type) {
+    case 'step-start':
+      console.log('⚙️  Processing...');
+      break;
+
+    case 'reasoning':
+      console.log('💭 Thinking...');
+      if (part.text) {
+        console.log(`   ${part.text}`);
+      }
+      break;
+
+    case 'text':
+      if (part.text) {
+        console.log(`\n${part.text}\n`);
+      }
+      break;
+
+    case 'step-finish':
+      console.log('✓ Done');
+      break;
+
+    case 'tool_use':
+      console.log(`🔧 Using tool: ${part.name || 'unknown'}`);
+      break;
+
+    case 'tool_result':
+      break;
+
+    default:
+      break;
+  }
+}
+
+async function startEventListener(): Promise<void> {
+  try {
+    const response = await fetch(`${SERVER_URL}/event`, {
+      headers: getAuthHeaders(false)
+    });
+
+    if (!response.ok) {
+      console.warn('Failed to connect to event stream');
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      try {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+                        console.log(line)
+
+          if (line.startsWith('data: ')) {
+            const data = line.substring(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const part = JSON.parse(data);
+              //console.log(part)
+              processPart(part);
+            } catch (error) {
+            }
+          }
+        }
+      } catch (error) {
+        break;
+      }
+    }
+  } catch (error) {
+  }
 }
 
 async function startOpenCodeServer() {
@@ -96,7 +185,6 @@ async function createSession(): Promise<string> {
 }
 
 async function sendMessage(sessionId: string, message: string) {
-  console.log('Sending message to server...');
   const response = await fetchWithTimeout(`${SERVER_URL}/session/${sessionId}/message`, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -109,30 +197,20 @@ async function sendMessage(sessionId: string, message: string) {
     })
   }, 180000);
 
-  console.log(`Server responded with status: ${response.status}`);
-
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Failed to send message (${response.status}): ${error}`);
   }
 
-  const data = await response.json();
-  console.log(`Received ${data.parts?.length || 0} parts`);
-  return data;
-}
-
-async function formatResponse(parts: any[]): Promise<string> {
-  const output: string[] = [];
-
-  for (const part of parts) {
-    if (part.type === 'text') {
-      output.push(part.text);
-    } else if (part.type === 'tool_use' || part.type === 'tool_result') {
-      continue;
-    }
-  }
-
-  return output.join('\n').trim();
+  // all of these messages should have been handled as server events
+  //const data = await response.json();
+  //
+  //if (data.parts) {
+  //  for (const part of data.parts) {
+  //    //processPart(part);
+  //    await new Promise(resolve => setTimeout(resolve, 100));
+  //  }
+  //}
 }
 
 async function runInit(sessionId: string): Promise<void> {
@@ -236,6 +314,7 @@ async function main() {
 
   try {
     const sessionId = await createSession();
+    startEventListener();
     console.log('Session created. Type your message and press Enter (Ctrl+C to exit):\n');
 
     const rl = readline.createInterface({
@@ -265,9 +344,7 @@ async function main() {
                 console.log();
               } else {
                 console.log('Sending...');
-                const response = await sendMessage(sessionId, input);
-                const formatted = await formatResponse(response.parts);
-                console.log('\n' + formatted + '\n');
+                await sendMessage(sessionId, input);
               }
             } catch (error: any) {
               console.error('Error:', error.message);
