@@ -32,9 +32,18 @@ function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
 let seenParts = new Set();
 let firstText = true;
 let lastEventTime = Date.now();
+let statusMessage = "";
 const EVENT_TIMEOUT_MS = 120000;
 
+function clearStatusLine(): void {
+	if (statusMessage) {
+		process.stdout.write(`\r${" ".repeat(statusMessage.length)}\r`);
+		statusMessage = "";
+	}
+}
+
 function printReasoning(text: string): void {
+	clearStatusLine();
 	process.stdout.write(`\x1b[90m${text}\x1b[0m`);
 }
 
@@ -43,8 +52,9 @@ function processPart(part: Part, delta: string | undefined): void {
 
 	switch (part.type) {
 		case "step-start":
-			console.log("⚙️ Processing...");
-			//console.log();
+			clearStatusLine();
+			process.stdout.write("⚙️ Processing...");
+			statusMessage = "⚙️ Processing...";
 			break;
 
 		case "reasoning":
@@ -82,9 +92,8 @@ function processPart(part: Part, delta: string | undefined): void {
 			break;
 
 		case "step-finish":
-			console.log();
-			console.log("✅ Done");
-			console.log();
+			clearStatusLine();
+			process.stdout.write("✅ Done\n");
 			break;
 
 		case "tool_use":
@@ -128,6 +137,7 @@ function processEvent(event: ServerEvent): void {
 			break;
 
 		case "session.diff":
+			clearStatusLine();
 			const diff = event.properties.diff;
 			if (diff && diff.length > 0) {
 				console.log(`📊 ${diff.length} file(s) modified`);
