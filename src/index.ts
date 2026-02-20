@@ -5,10 +5,13 @@ import type {
 	EventProperties,
 	EventType,
 	MessageInfo,
+	MessagesResponse,
+	ModelResponse,
 	Part,
 	PartType,
 	ServerEvent,
 	SessionInfo,
+	SessionResponse,
 	SessionStatus,
 	Tokens,
 } from "./types";
@@ -332,7 +335,7 @@ async function createSession(): Promise<string> {
 		throw new Error(`Failed to create session (${response.status}): ${error}`);
 	}
 
-	const session = await response.json();
+	const session = (await response.json()) as SessionResponse;
 	return session.id;
 }
 
@@ -415,12 +418,12 @@ async function runModel(sessionId: string): Promise<void> {
 		throw new Error(`Failed to fetch models (${response.status}): ${error}`);
 	}
 
-	const config = await response.json();
+	const config = (await response.json()) as ModelResponse;
 	console.log("\nAvailable models:");
 
 	for (const provider of config.providers || []) {
 		console.log(`\n${provider.name}:`);
-		const models = Object.values(provider.models || {}) as any[];
+		const models = Object.values(provider.models || {});
 		for (const model of models) {
 			console.log(`  - ${model.id}: ${model.name || ""}`);
 		}
@@ -445,7 +448,7 @@ async function runUndo(sessionId: string): Promise<void> {
 		throw new Error(`Failed to fetch messages (${messagesRes.status}): ${error}`);
 	}
 
-	const messages = await messagesRes.json();
+	const messages = (await messagesRes.json()) as MessagesResponse[];
 
 	if (!messages || messages.length === 0) {
 		console.log("No messages to undo.\n");

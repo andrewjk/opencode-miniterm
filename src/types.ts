@@ -121,3 +121,24 @@ export type PartType =
 	| "step-finish"
 	| "tool_use"
 	| "tool_result";
+
+export interface SessionResponse {
+	id: string;
+}
+
+export interface ModelResponse {
+	providers: {
+		name: string;
+		models: {
+			id: string;
+			name: string;
+		}[];
+	}[];
+}
+
+export interface MessagesResponse {
+	info: {
+		id: string;
+		role: string;
+	};
+}
