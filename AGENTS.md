@@ -128,6 +128,13 @@ This is an alternative terminal UI for OpenCode. Focus on:
 - Efficient resource usage (memory/CPU)
 - Compatibility with OpenCode's API
 
+## File Organization
+
+- Create all temporary files in `./tmp` directory
+- Avoid using `/tmp` or system temp directories
+- The `tmp` folder is gitignored and safe for transient files
+- Clean up temporary files after use to keep the directory organized
+
 ## OpenCode Server Integration
 
 ### Starting the Server
