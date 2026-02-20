@@ -107,6 +107,8 @@ export interface DiffInfo {
 }
 
 export type EventType =
+	| "server.connected"
+	| "server.heartbeat"
 	| "message.part.updated"
 	| "message.updated"
 	| "session.updated"

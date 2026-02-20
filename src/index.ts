@@ -33,20 +33,28 @@ function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
 }
 
 let seenParts = new Set();
-let firstText = true;
+let processing = true;
 let lastEventTime = Date.now();
 let statusLineCount = 0;
 
 function clearStatusLine(): void {
 	if (statusLineCount > 0) {
+		// Clear `statusLineCount` lines
 		process.stdout.write(`\x1b[${statusLineCount}A\x1b[J`);
 		statusLineCount = 0;
 	}
 }
 
 function printReasoning(text: string): void {
-	clearStatusLine();
+	// Print reasoning in a muted color
 	process.stdout.write(`\x1b[90m${text}\x1b[0m`);
+
+	// Count newlines for clearing once reasoning is done
+	for (let char of text) {
+		if (char === "\n") {
+			statusLineCount++;
+		}
+	}
 }
 
 function processPart(part: Part, delta: string | undefined): void {
@@ -55,16 +63,18 @@ function processPart(part: Part, delta: string | undefined): void {
 	switch (part.type) {
 		case "step-start":
 			clearStatusLine();
+
+			console.log("💭 Thinking...");
 			console.log();
-			console.log("⚙️ Processing...");
 			statusLineCount = 2;
+
+			processing = true;
 			break;
 
 		case "reasoning":
 			if (delta && !seenParts.has(partKey)) {
-				clearStatusLine();
-				console.log();
-				process.stdout.write("💭 ");
+				// Start the line
+				statusLineCount += 1;
 				seenParts.add(partKey);
 			}
 			if (delta) {
@@ -75,14 +85,15 @@ function processPart(part: Part, delta: string | undefined): void {
 			break;
 
 		case "text":
-			if (firstText) {
-				firstText = false;
+			if (!processing) {
 				break;
 			}
 			if (delta && !seenParts.has(partKey)) {
 				clearStatusLine();
+				console.log("💬 Response:");
 				console.log();
-				process.stdout.write("💬 ");
+				statusLineCount = 2;
+
 				seenParts.add(partKey);
 				seenParts.add(partKey + "_final");
 			}
@@ -97,16 +108,16 @@ function processPart(part: Part, delta: string | undefined): void {
 			break;
 
 		case "step-finish":
-			clearStatusLine();
-			console.log();
-			console.log("✅ Done");
-			statusLineCount = 2;
+			//clearStatusLine();
+			//console.log();
+			//console.log("✅ Done");
+			//statusLineCount = 2;
 			break;
 
 		case "tool_use":
 			clearStatusLine();
-			console.log();
 			console.log(`🔧 Using tool: ${part.name || "unknown"}`);
+			console.log();
 			statusLineCount = 2;
 			break;
 
@@ -117,6 +128,14 @@ function processPart(part: Part, delta: string | undefined): void {
 
 function processEvent(event: ServerEvent): void {
 	lastEventTime = Date.now();
+
+	//switch (event.type) {
+	//	case "server.connected":
+	//	case "server.heartbeat":
+	//		break;
+	//	default:
+	//		console.log(`~ ${event.type} (${event.properties.part?.text}, ${event.properties.delta}) ~`);
+	//}
 
 	switch (event.type) {
 		case "message.part.updated":
@@ -147,7 +166,7 @@ function processEvent(event: ServerEvent): void {
 			break;
 
 		case "session.diff":
-			clearStatusLine();
+			//clearStatusLine();
 			const diff = event.properties.diff;
 			if (diff && diff.length > 0) {
 				for (const file of diff) {
@@ -334,7 +353,7 @@ async function createSession(): Promise<string> {
 }
 
 async function sendMessage(sessionId: string, message: string) {
-	firstText = true;
+	processing = false;
 	seenParts.clear();
 
 	const response = await fetchWithTimeout(
@@ -494,6 +513,7 @@ async function main() {
 		const sessionId = await createSession();
 		startEventListener();
 		console.log("Session created. Type your message and press Enter (Ctrl+C to exit):");
+		console.log();
 
 		const rl = readline.createInterface({
 			input: process.stdin,
@@ -502,7 +522,7 @@ async function main() {
 
 		const ask = (): Promise<void> => {
 			return new Promise((resolve) => {
-				rl.question("\n> ", async (input) => {
+				rl.question("> ", async (input) => {
 					if (input.trim()) {
 						try {
 							const trimmed = input.trim();
@@ -521,8 +541,10 @@ async function main() {
 								console.log("  /help   - Show this help message");
 								console.log();
 							} else {
+								console.log();
 								console.log("👉 Sending...");
-								statusLineCount = 1;
+								console.log();
+								statusLineCount = 2;
 
 								await sendMessage(sessionId, input);
 							}
