@@ -33,12 +33,17 @@ let seenParts = new Set();
 let firstText = true;
 let lastEventTime = Date.now();
 let statusMessage = "";
+let diffLineCount = 0;
 const EVENT_TIMEOUT_MS = 120000;
 
 function clearStatusLine(): void {
 	if (statusMessage) {
 		process.stdout.write(`\r${" ".repeat(statusMessage.length)}\r`);
 		statusMessage = "";
+	}
+	if (diffLineCount > 0) {
+		process.stdout.write(`\x1b[${diffLineCount}A\x1b[2J\x1b[H`);
+		diffLineCount = 0;
 	}
 }
 
@@ -140,7 +145,16 @@ function processEvent(event: ServerEvent): void {
 			clearStatusLine();
 			const diff = event.properties.diff;
 			if (diff && diff.length > 0) {
-				console.log(`📊 ${diff.length} file(s) modified`);
+				for (const file of diff) {
+					const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
+					const statusLabel =
+						file.status === "added" ? "added" : file.status === "modified" ? "modified" : "deleted";
+					const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
+					const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
+					const stats = [addStr, delStr].filter(Boolean).join(" ");
+					console.log(`  ${statusIcon} ${file.file} (${statusLabel}) ${stats}`);
+				}
+				diffLineCount = diff.length;
 			}
 			break;
 

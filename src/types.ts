@@ -94,7 +94,16 @@ export interface EventProperties {
 	info?: MessageInfo | SessionInfo;
 	sessionID?: string;
 	status?: SessionStatus;
-	diff?: any[];
+	diff?: DiffInfo[];
+}
+
+export interface DiffInfo {
+	file: string;
+	before: string;
+	after: string;
+	additions: number;
+	deletions: number;
+	status: string;
 }
 
 export type EventType =
