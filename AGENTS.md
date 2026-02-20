@@ -128,6 +128,67 @@ This is an alternative terminal UI for OpenCode. Focus on:
 - Efficient resource usage (memory/CPU)
 - Compatibility with OpenCode's API
 
+## OpenCode Server Integration
+
+### Starting the Server
+- Use `opencode serve` to start a headless HTTP server (not `opencode server`)
+- Default URL: `http://127.0.0.1:4096` (port may vary, can be 0/random)
+- Server requires 2-3 seconds to initialize before accepting requests
+- Spawn with `stdio: ['ignore', 'pipe', 'pipe']` to avoid interfering with parent I/O
+- Always handle SIGINT to properly shut down the server process
+
+### Authentication
+- Server may require HTTP Basic Auth if `OPENCODE_SERVER_PASSWORD` is set
+- Username: `OPENCODE_SERVER_USERNAME` env var (default: 'opencode')
+- Password: `OPENCODE_SERVER_PASSWORD` env var
+- Include `Authorization: Basic <base64(username:password)>` header when password is set
+- Include `Content-Type: application/json` header for all POST requests
+
+### Creating Sessions
+```ts
+POST /session
+Headers: { "Content-Type": "application/json", "Authorization": "Basic <creds>" }
+Body: {}
+Response: { id: string, title?: string, ... }
+```
+
+### Sending Messages
+```ts
+POST /session/:id/message
+Headers: { "Content-Type": "application/json", "Authorization": "Basic <creds>" }
+Body: {
+  model: {
+    modelID: 'big-pickle',
+    providerID: 'opencode'
+  },
+  parts: [{ type: 'text', text: 'your message here' }]
+}
+Response: { info: Message, parts: Part[] }
+```
+
+**IMPORTANT**: The `model` field is required when sending messages. Without it, the request will hang indefinitely. Get available models from `GET /config/providers` or `GET /models`. Common models:
+- `big-pickle` (opencode provider) - default, high quality
+- `glm-5-free` (opencode provider) - free GLM model
+- `gpt-5-nano` (opencode provider) - fast GPT model
+
+### Response Format
+- Response has `{ info, parts }` structure
+- Parts can be: `text`, `tool_use`, or `tool_result`
+- Filter out `tool_use` and `tool_result` parts for display to user
+- Text parts contain the AI's response
+
+### Error Handling
+- Server returns 401 Unauthorized when authentication is missing/invalid
+- Handle connection errors (server may not be ready yet)
+- Always parse error text from response for debugging
+- Bun's fetch doesn't timeout by default - use AbortController for timeouts:
+  ```ts
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180000);
+  const response = await fetch(url, { signal: controller.signal });
+  clearTimeout(timeout);
+  ```
+
 ## Safety Notes
 
 - Never commit API keys, tokens, or secrets

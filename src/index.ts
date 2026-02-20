@@ -56,12 +56,32 @@ async function startOpenCodeServer() {
   return serverProcess;
 }
 
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 120000): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    return response;
+  } catch (error: any) {
+    clearTimeout(timeout);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  }
+}
+
 async function createSession(): Promise<string> {
-  const response = await fetch(`${SERVER_URL}/session`, {
+  const response = await fetchWithTimeout(`${SERVER_URL}/session`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({})
-  });
+  }, 10000);
 
   if (!response.ok) {
     const error = await response.text();
@@ -73,20 +93,29 @@ async function createSession(): Promise<string> {
 }
 
 async function sendMessage(sessionId: string, message: string) {
-  const response = await fetch(`${SERVER_URL}/session/${sessionId}/message`, {
+  console.log('Sending message to server...');
+  const response = await fetchWithTimeout(`${SERVER_URL}/session/${sessionId}/message`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({
+      model: {
+        modelID: 'big-pickle',
+        providerID: 'opencode'
+      },
       parts: [{ type: 'text', text: message }]
     })
-  });
+  }, 180000);
+
+  console.log(`Server responded with status: ${response.status}`);
 
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Failed to send message (${response.status}): ${error}`);
   }
 
-  return await response.json();
+  const data = await response.json();
+  console.log(`Received ${data.parts?.length || 0} parts`);
+  return data;
 }
 
 async function formatResponse(parts: any[]): Promise<string> {
