@@ -140,9 +140,10 @@ This is an alternative terminal UI for OpenCode. Focus on:
 ### Authentication
 - Server may require HTTP Basic Auth if `OPENCODE_SERVER_PASSWORD` is set
 - Username: `OPENCODE_SERVER_USERNAME` env var (default: 'opencode')
-- Password: `OPENCODE_SERVER_PASSWORD` env var
+- Password: `OPENCODE_SERVER_PASSWORD` env var (required if server has password set)
 - Include `Authorization: Basic <base64(username:password)>` header when password is set
 - Include `Content-Type: application/json` header for all POST requests
+- Check env vars at startup: `echo $OPENCODE_SERVER_PASSWORD` to verify it's set
 
 ### Creating Sessions
 ```ts
@@ -151,6 +152,14 @@ Headers: { "Content-Type": "application/json", "Authorization": "Basic <creds>" 
 Body: {}
 Response: { id: string, title?: string, ... }
 ```
+
+### Getting Available Models
+```ts
+GET /config/providers
+Headers: { "Authorization": "Basic <creds>" }
+Response: { providers: Provider[], default: { [key: string]: string } }
+```
+Note: `/models` endpoint returns HTML documentation, not JSON. Use `/config/providers` for programmatic access.
 
 ### Sending Messages
 ```ts

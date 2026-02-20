@@ -85,6 +85,9 @@ async function createSession(): Promise<string> {
 
   if (!response.ok) {
     const error = await response.text();
+    if (response.status === 401 && !AUTH_PASSWORD) {
+      throw new Error('Server requires authentication. Set OPENCODE_SERVER_PASSWORD environment variable.');
+    }
     throw new Error(`Failed to create session (${response.status}): ${error}`);
   }
 
@@ -151,7 +154,7 @@ async function runInit(sessionId: string): Promise<void> {
 
 async function runModel(sessionId: string): Promise<void> {
   console.log('Fetching available models...');
-  const response = await fetchWithTimeout(`${SERVER_URL}/models`, {
+  const response = await fetchWithTimeout(`${SERVER_URL}/config/providers`, {
     method: 'GET',
     headers: getAuthHeaders()
   }, 10000);
@@ -161,35 +164,29 @@ async function runModel(sessionId: string): Promise<void> {
     throw new Error(`Failed to fetch models (${response.status}): ${error}`);
   }
 
-  const models = await response.json();
+  const config = await response.json();
   console.log('\nAvailable models:');
-  for (const provider of models) {
+
+  for (const provider of config.providers || []) {
     console.log(`\n${provider.name}:`);
-    for (const model of provider.models || []) {
-      console.log(`  - ${model.id}: ${model.name || model.description || ''}`);
+    const models = Object.values(provider.models || {}) as any[];
+    for (const model of models) {
+      console.log(`  - ${model.id}: ${model.name || ''}`);
     }
   }
   console.log();
 }
 
 async function runUndo(sessionId: string): Promise<void> {
-  console.log('Running /undo command...');
-  const response = await fetchWithTimeout(`${SERVER_URL}/session/${sessionId}/undo`, {
-    method: 'POST',
-    headers: getAuthHeaders()
-  }, 30000);
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to run /undo (${response.status}): ${error}`);
-  }
-
-  const result = await response.json();
-  console.log('\n' + (result.undone ? 'Last message undone successfully.' : 'Nothing to undo.') + '\n');
+  console.log('/undo command not yet implemented. OpenCode API uses /revert for message-level undo.');
 }
 
 async function main() {
   const serverProcess = await startOpenCodeServer();
+
+  if (!AUTH_PASSWORD) {
+    console.warn('Warning: OPENCODE_SERVER_PASSWORD not set. Authentication may be required.');
+  }
 
   try {
     const sessionId = await createSession();
