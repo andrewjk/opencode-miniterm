@@ -1,0 +1,18 @@
+# Logs
+logs
+*.log
+*-debug.log*
+*-error.log*
+
+# Standard directories and files
+node_modules/
+coverage/
+dist/
+temp/
+.DS_Store
+*.db
+.env*
+
+# Editor directories and files
+.vscode/
+.idea
