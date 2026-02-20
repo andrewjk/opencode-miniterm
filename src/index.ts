@@ -33,16 +33,22 @@ let seenParts = new Set();
 let firstText = true;
 let lastEventTime = Date.now();
 let statusMessage = "";
+let statusLineCount = 0;
 let diffLineCount = 0;
 const EVENT_TIMEOUT_MS = 120000;
 
 function clearStatusLine(): void {
 	if (statusMessage) {
+		const totalLines = statusLineCount + 1;
 		process.stdout.write(`\r${" ".repeat(statusMessage.length)}\r`);
+		if (totalLines > 1) {
+			process.stdout.write(`\x1b[${totalLines}A\x1b[J`);
+		}
 		statusMessage = "";
+		statusLineCount = 0;
 	}
 	if (diffLineCount > 0) {
-		process.stdout.write(`\x1b[${diffLineCount}A\x1b[2J\x1b[H`);
+		process.stdout.write(`\x1b[${diffLineCount}A\x1b[J`);
 		diffLineCount = 0;
 	}
 }
@@ -60,10 +66,12 @@ function processPart(part: Part, delta: string | undefined): void {
 			clearStatusLine();
 			process.stdout.write("⚙️ Processing...");
 			statusMessage = "⚙️ Processing...";
+			statusLineCount = 0;
 			break;
 
 		case "reasoning":
 			if (delta && !seenParts.has(partKey)) {
+				clearStatusLine();
 				console.log();
 				process.stdout.write("💭 ");
 				seenParts.add(partKey);
@@ -78,9 +86,9 @@ function processPart(part: Part, delta: string | undefined): void {
 		case "text":
 			if (firstText) {
 				firstText = false;
-				break;
 			}
 			if (delta && !seenParts.has(partKey)) {
+				clearStatusLine();
 				console.log();
 				process.stdout.write("💬 ");
 				seenParts.add(partKey);
@@ -354,6 +362,8 @@ async function sendMessage(sessionId: string, message: string) {
 		throw new Error(`Failed to send message (${response.status}): ${error}`);
 	}
 
+	console.log();
+
 	// all of these messages should have been handled as server events
 	//const data = await response.json();
 	//
@@ -383,11 +393,10 @@ async function runInit(sessionId: string): Promise<void> {
 	}
 
 	const result = await response.json();
-	console.log(
-		"\n" +
-			(result ? "AGENTS.md created/updated successfully." : "No changes made to AGENTS.md.") +
-			"\n",
-	);
+
+	console.log();
+	console.log(result ? "AGENTS.md created/updated successfully." : "No changes made to AGENTS.md.");
+	console.log();
 }
 
 async function runModel(sessionId: string): Promise<void> {
@@ -515,8 +524,9 @@ async function main() {
 								console.log("  /help   - Show this help message");
 								console.log();
 							} else {
-								console.log("👉 Sending...");
-								console.log();
+								statusMessage = "👉 Sending...";
+								statusLineCount = 1;
+								console.log(`${statusMessage}`);
 
 								await sendMessage(sessionId, input);
 							}
