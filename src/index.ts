@@ -32,6 +32,10 @@ function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
 let seenParts = new Set();
 let firstText = true;
 
+function printReasoning(text: string): void {
+	process.stdout.write(`\x1b[90m${text}\x1b[0m`);
+}
+
 function processPart(part: Part, delta: string | undefined): void {
 	const partKey = `${part.messageID}-${part.id}`;
 
@@ -48,7 +52,7 @@ function processPart(part: Part, delta: string | undefined): void {
 				seenParts.add(partKey);
 			}
 			if (delta) {
-				process.stdout.write(delta);
+				printReasoning(delta);
 			} else if (part.time?.end) {
 				console.log();
 			}
