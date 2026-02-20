@@ -31,6 +31,8 @@ function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
 
 let seenParts = new Set();
 let firstText = true;
+let lastEventTime = Date.now();
+const EVENT_TIMEOUT_MS = 120000;
 
 function printReasoning(text: string): void {
 	process.stdout.write(`\x1b[90m${text}\x1b[0m`);
@@ -95,6 +97,8 @@ function processPart(part: Part, delta: string | undefined): void {
 }
 
 function processEvent(event: ServerEvent): void {
+	lastEventTime = Date.now();
+
 	switch (event.type) {
 		case "message.part.updated":
 			processPart(event.properties.part!, event.properties.delta);
@@ -223,9 +227,41 @@ async function fetchWithTimeout(
 	url: string,
 	options: RequestInit,
 	timeoutMs: number = 120000,
+	resetOnActivity: boolean = false,
 ): Promise<Response> {
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), timeoutMs);
+	let timeout = setTimeout(() => controller.abort(), timeoutMs);
+	const startTime = lastEventTime;
+
+	const resetTimeout = (): void => {
+		clearTimeout(timeout);
+		timeout = setTimeout(() => controller.abort(), timeoutMs);
+	};
+
+	if (resetOnActivity) {
+		const interval = setInterval(() => {
+			if (lastEventTime > startTime) {
+				resetTimeout();
+			}
+		}, 5000);
+
+		try {
+			const response = await fetch(url, {
+				...options,
+				signal: controller.signal,
+			});
+			clearTimeout(timeout);
+			clearInterval(interval);
+			return response;
+		} catch (error: any) {
+			clearTimeout(timeout);
+			clearInterval(interval);
+			if (error.name === "AbortError") {
+				throw new Error(`Request timed out after ${timeoutMs}ms`);
+			}
+			throw error;
+		}
+	}
 
 	try {
 		const response = await fetch(url, {
@@ -286,6 +322,7 @@ async function sendMessage(sessionId: string, message: string) {
 			}),
 		},
 		180000,
+		true,
 	);
 
 	if (!response.ok) {
