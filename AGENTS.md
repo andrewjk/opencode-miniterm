@@ -175,6 +175,22 @@ Body: {
 Response: { info: Message, parts: Part[] }
 ```
 
+### Getting Session Messages
+```ts
+GET /session/:id/message
+Headers: { "Authorization": "Basic <creds>" }
+Response: { info: Message, parts: Part[] }[]
+```
+
+### Undoing Messages (Revert)
+```ts
+POST /session/:id/revert
+Headers: { "Content-Type": "application/json", "Authorization": "Basic <creds>" }
+Body: { messageID: string, partID?: string }
+Response: { id: string, revert: { messageID, snapshot, diff } }
+```
+Typically used to undo the last assistant message by fetching messages first, then reverting the last one.
+
 **IMPORTANT**: The `model` field is required when sending messages. Without it, the request will hang indefinitely. Get available models from `GET /config/providers` or `GET /models`. Common models:
 - `big-pickle` (opencode provider) - default, high quality
 - `glm-5-free` (opencode provider) - free GLM model

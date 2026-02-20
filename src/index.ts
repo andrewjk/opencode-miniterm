@@ -178,7 +178,53 @@ async function runModel(sessionId: string): Promise<void> {
 }
 
 async function runUndo(sessionId: string): Promise<void> {
-  console.log('/undo command not yet implemented. OpenCode API uses /revert for message-level undo.');
+  console.log('Fetching session messages...');
+
+  const messagesRes = await fetchWithTimeout(`${SERVER_URL}/session/${sessionId}/message`, {
+    method: 'GET',
+    headers: getAuthHeaders()
+  }, 10000);
+
+  if (!messagesRes.ok) {
+    const error = await messagesRes.text();
+    throw new Error(`Failed to fetch messages (${messagesRes.status}): ${error}`);
+  }
+
+  const messages = await messagesRes.json();
+
+  if (!messages || messages.length === 0) {
+    console.log('No messages to undo.\n');
+    return;
+  }
+
+  const lastMessage = messages[messages.length - 1];
+
+  if (!lastMessage || !lastMessage.info) {
+    console.log('No valid message to undo.\n');
+    return;
+  }
+
+  if (lastMessage.info.role !== 'assistant') {
+    console.log('Last message is not an AI response, nothing to undo.\n');
+    return;
+  }
+
+  console.log(`Reverting last assistant message (${lastMessage.info.id})...`);
+
+  const revertRes = await fetchWithTimeout(`${SERVER_URL}/session/${sessionId}/revert`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      messageID: lastMessage.info.id
+    })
+  }, 30000);
+
+  if (!revertRes.ok) {
+    const error = await revertRes.text();
+    throw new Error(`Failed to revert message (${revertRes.status}): ${error}`);
+  }
+
+  console.log('Successfully reverted last message.\n');
 }
 
 async function main() {
