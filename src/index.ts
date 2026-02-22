@@ -2,6 +2,7 @@ import type { HeadersInit } from "bun";
 import { spawn } from "child_process";
 import readline from "readline";
 import type {
+	DiffInfo,
 	EventProperties,
 	EventType,
 	MessageInfo,
@@ -20,28 +21,188 @@ const SERVER_URL = "http://127.0.0.1:4096";
 const AUTH_USERNAME = process.env.OPENCODE_SERVER_USERNAME || "opencode";
 const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
 
-function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
-	const headers: HeadersInit = {};
-	if (AUTH_PASSWORD) {
-		const credentials = Buffer.from(`${AUTH_USERNAME}:${AUTH_PASSWORD}`).toString("base64");
-		headers["Authorization"] = `Basic ${credentials}`;
-	}
-	if (includeContentType) {
-		headers["Content-Type"] = "application/json";
-	}
-	return headers;
-}
-
 let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
 let statusLineCount = 0;
 
-function clearStatusLine(): void {
-	if (statusLineCount > 0) {
-		// Clear `statusLineCount` lines
-		process.stdout.write(`\x1b[${statusLineCount}A\x1b[J`);
-		statusLineCount = 0;
+main().catch(console.error);
+
+async function main() {
+	const serverProcess = await startOpenCodeServer();
+
+	try {
+		const sessionId = await createSession();
+		startEventListener();
+		console.log("Session created. Type your message and press Enter (Ctrl+C to exit):");
+		console.log();
+
+		const rl = readline.createInterface({
+			input: process.stdin,
+			output: process.stdout,
+		});
+
+		const ask = (): Promise<void> => {
+			return new Promise((resolve) => {
+				rl.question("> ", async (input) => {
+					if (input.trim()) {
+						try {
+							const trimmed = input.trim();
+
+							if (trimmed === "/init") {
+								await runInit(sessionId);
+							} else if (trimmed === "/model" || trimmed === "/models") {
+								await runModel(sessionId);
+							} else if (trimmed === "/undo") {
+								await runUndo(sessionId);
+							} else if (trimmed === "/help") {
+								console.log("\nAvailable commands:");
+								console.log("  /init   - Analyze project and create/update AGENTS.md");
+								console.log("  /model  - List available models");
+								console.log("  /undo   - Undo last message");
+								console.log("  /help   - Show this help message");
+								console.log();
+							} else {
+								console.log();
+								console.log("👉 Sending...");
+								console.log();
+								statusLineCount = 2;
+
+								await sendMessage(sessionId, input);
+							}
+						} catch (error: any) {
+							console.error("Error:", error.message);
+						}
+					}
+					ask();
+				});
+			});
+		};
+
+		ask();
+	} catch (error: any) {
+		console.error("Error:", error.message);
+		serverProcess.kill();
+		process.exit(1);
+	}
+}
+
+// USER INTERFACE
+// ====================
+
+function processEvent(event: ServerEvent): void {
+	lastEventTime = Date.now();
+
+	switch (event.type) {
+		case "message.part.updated":
+			processPart(event.properties.part!, event.properties.delta);
+			break;
+
+		case "session.diff":
+			processDiff(event.properties.diff);
+			break;
+
+		default:
+			break;
+	}
+}
+
+function processPart(part: Part, delta: string | undefined): void {
+	const partKey = `${part.messageID}-${part.id}`;
+
+	switch (part.type) {
+		case "step-start":
+			processStepStart();
+			break;
+
+		case "reasoning":
+			processReasoning(part, partKey, delta);
+			break;
+
+		case "text":
+			if (processing) {
+				processText(part, partKey, delta);
+			}
+			break;
+
+		case "step-finish":
+			break;
+
+		case "tool_use":
+			processToolUse(part);
+			break;
+
+		default:
+			break;
+	}
+}
+
+function processStepStart() {
+	clearStatusLine();
+
+	console.log("💭 Thinking...");
+	console.log();
+	statusLineCount = 2;
+
+	processing = true;
+}
+
+function processReasoning(part: Part, partKey: string, delta: string | undefined) {
+	if (delta && !seenParts.has(partKey)) {
+		statusLineCount += 1;
+		seenParts.add(partKey);
+	}
+
+	if (delta) {
+		printReasoning(delta);
+	} else if (part.time?.end) {
+		console.log();
+	}
+}
+
+function processText(part: Part, partKey: string, delta: string | undefined) {
+	if (delta && !seenParts.has(partKey)) {
+		clearStatusLine();
+		console.log("💬 Response:");
+		console.log();
+		statusLineCount = 2;
+
+		seenParts.add(partKey);
+		seenParts.add(partKey + "_final");
+	}
+
+	if (delta) {
+		process.stdout.write(delta);
+	} else if (part.text && !seenParts.has(partKey + "_final")) {
+		console.log(part.text);
+		seenParts.add(partKey + "_final");
+	} else if (part.text) {
+		console.log();
+	}
+}
+
+function processToolUse(part: Part) {
+	clearStatusLine();
+	console.log(`🔧 Using tool: ${part.name || "unknown"}`);
+	console.log();
+	statusLineCount = 2;
+}
+
+function processDiff(diff: DiffInfo[] | undefined) {
+	clearStatusLine();
+
+	if (diff && diff.length > 0) {
+		for (const file of diff) {
+			const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
+			const statusLabel =
+				file.status === "added" ? "added" : file.status === "modified" ? "modified" : "deleted";
+			const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
+			const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
+			const stats = [addStr, delStr].filter(Boolean).join(" ");
+			console.log(`  ${statusIcon} ${file.file} (${statusLabel}) ${stats}`);
+		}
+		console.log();
+		statusLineCount = diff.length + 1;
 	}
 }
 
@@ -57,139 +218,24 @@ function printReasoning(text: string): void {
 	}
 }
 
-function processPart(part: Part, delta: string | undefined): void {
-	const partKey = `${part.messageID}-${part.id}`;
-
-	switch (part.type) {
-		case "step-start":
-			clearStatusLine();
-
-			console.log("💭 Thinking...");
-			console.log();
-			statusLineCount = 2;
-
-			processing = true;
-			break;
-
-		case "reasoning":
-			if (delta && !seenParts.has(partKey)) {
-				// Start the line
-				statusLineCount += 1;
-				seenParts.add(partKey);
-			}
-			if (delta) {
-				printReasoning(delta);
-			} else if (part.time?.end) {
-				console.log();
-			}
-			break;
-
-		case "text":
-			if (!processing) {
-				break;
-			}
-			if (delta && !seenParts.has(partKey)) {
-				clearStatusLine();
-				console.log("💬 Response:");
-				console.log();
-				statusLineCount = 2;
-
-				seenParts.add(partKey);
-				seenParts.add(partKey + "_final");
-			}
-			if (delta) {
-				process.stdout.write(delta);
-			} else if (part.text && !seenParts.has(partKey + "_final")) {
-				console.log(part.text);
-				seenParts.add(partKey + "_final");
-			} else if (part.text) {
-				console.log();
-			}
-			break;
-
-		case "step-finish":
-			//clearStatusLine();
-			//console.log();
-			//console.log("✅ Done");
-			//statusLineCount = 2;
-			break;
-
-		case "tool_use":
-			clearStatusLine();
-			console.log(`🔧 Using tool: ${part.name || "unknown"}`);
-			console.log();
-			statusLineCount = 2;
-			break;
-
-		default:
-			break;
+function clearStatusLine(): void {
+	if (statusLineCount > 0) {
+		// Clear `statusLineCount` lines
+		process.stdout.write(`\x1b[${statusLineCount}A\x1b[J`);
+		statusLineCount = 0;
 	}
 }
 
-function processEvent(event: ServerEvent): void {
-	lastEventTime = Date.now();
-
-	//switch (event.type) {
-	//	case "server.connected":
-	//	case "server.heartbeat":
-	//		break;
-	//	default:
-	//		console.log(`~ ${event.type} (${event.properties.part?.text}, ${event.properties.delta}) ~`);
-	//}
-
-	switch (event.type) {
-		case "message.part.updated":
-			processPart(event.properties.part!, event.properties.delta);
-			break;
-
-		case "session.status":
-			//const status = event.properties.status?.type;
-			//if (status === "busy") {
-			//	console.log("🔄 Working...");
-			//} else if (status === "idle") {
-			//	console.log("✅ Ready");
-			//}
-			break;
-
-		case "session.updated":
-			//const info = event.properties.info;
-			//if (info?.title) {
-			//  console.log(`📝 Session: ${info.title}`);
-			//}
-			break;
-
-		case "message.updated":
-			//const msgInfo = event.properties.info;
-			//if (msgInfo?.role === 'user' && !msgInfo.summary) {
-			//  console.log(`\n> ${msgInfo.time ? new Date(msgInfo.time.created).toLocaleTimeString() : ''} You sent a message`);
-			//}
-			break;
-
-		case "session.diff":
-			//clearStatusLine();
-			const diff = event.properties.diff;
-			if (diff && diff.length > 0) {
-				for (const file of diff) {
-					const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
-					const statusLabel =
-						file.status === "added" ? "added" : file.status === "modified" ? "modified" : "deleted";
-					const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
-					const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
-					const stats = [addStr, delStr].filter(Boolean).join(" ");
-					console.log(`  ${statusIcon} ${file.file} (${statusLabel}) ${stats}`);
-				}
-				statusLineCount = diff.length;
-			}
-			break;
-
-		case "session.idle":
-			//console.log('📋 Session idle');
-			break;
-
-		default:
-			break;
-	}
+function write(text: string) {
+	process.stdout.write(text);
 }
+
+function writeLine(text: string) {
+	process.stdout.write(text + "\n");
+}
+
+// SERVER COMMUNICATION
+// ====================
 
 async function startEventListener(): Promise<void> {
 	try {
@@ -379,17 +425,22 @@ async function sendMessage(sessionId: string, message: string) {
 	}
 
 	console.log();
-
-	// all of these messages should have been handled as server events
-	//const data = await response.json();
-	//
-	//if (data.parts) {
-	//  for (const part of data.parts) {
-	//    //processPart(part);
-	//    await new Promise(resolve => setTimeout(resolve, 100));
-	//  }
-	//}
 }
+
+function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
+	const headers: HeadersInit = {};
+	if (AUTH_PASSWORD) {
+		const credentials = Buffer.from(`${AUTH_USERNAME}:${AUTH_PASSWORD}`).toString("base64");
+		headers["Authorization"] = `Basic ${credentials}`;
+	}
+	if (includeContentType) {
+		headers["Content-Type"] = "application/json";
+	}
+	return headers;
+}
+
+// COMMANDS
+// ====================
 
 async function runInit(sessionId: string): Promise<void> {
 	console.log("Running /init command (analyzing project and creating AGENTS.md)...");
@@ -501,68 +552,3 @@ async function runUndo(sessionId: string): Promise<void> {
 
 	console.log("Successfully reverted last message.\n");
 }
-
-async function main() {
-	const serverProcess = await startOpenCodeServer();
-
-	//if (!AUTH_PASSWORD) {
-	//	console.warn("Warning: OPENCODE_SERVER_PASSWORD not set. Authentication may be required.");
-	//}
-
-	try {
-		const sessionId = await createSession();
-		startEventListener();
-		console.log("Session created. Type your message and press Enter (Ctrl+C to exit):");
-		console.log();
-
-		const rl = readline.createInterface({
-			input: process.stdin,
-			output: process.stdout,
-		});
-
-		const ask = (): Promise<void> => {
-			return new Promise((resolve) => {
-				rl.question("> ", async (input) => {
-					if (input.trim()) {
-						try {
-							const trimmed = input.trim();
-
-							if (trimmed === "/init") {
-								await runInit(sessionId);
-							} else if (trimmed === "/model" || trimmed === "/models") {
-								await runModel(sessionId);
-							} else if (trimmed === "/undo") {
-								await runUndo(sessionId);
-							} else if (trimmed === "/help") {
-								console.log("\nAvailable commands:");
-								console.log("  /init   - Analyze project and create/update AGENTS.md");
-								console.log("  /model  - List available models");
-								console.log("  /undo   - Undo last message");
-								console.log("  /help   - Show this help message");
-								console.log();
-							} else {
-								console.log();
-								console.log("👉 Sending...");
-								console.log();
-								statusLineCount = 2;
-
-								await sendMessage(sessionId, input);
-							}
-						} catch (error: any) {
-							console.error("Error:", error.message);
-						}
-					}
-					ask();
-				});
-			});
-		};
-
-		ask();
-	} catch (error: any) {
-		console.error("Error:", error.message);
-		serverProcess.kill();
-		process.exit(1);
-	}
-}
-
-main().catch(console.error);
