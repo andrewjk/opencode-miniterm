@@ -24,7 +24,7 @@ export interface Part {
 			signature: string;
 		};
 	};
-	name?: string;
+	tool?: string;
 }
 
 export interface Tokens {
@@ -89,10 +89,12 @@ export interface SessionStatus {
 }
 
 export interface EventProperties {
+	sessionID?: string;
+	messageID?: string;
+	partID?: string;
 	part?: Part;
 	delta?: string;
 	info?: MessageInfo | SessionInfo;
-	sessionID?: string;
 	status?: SessionStatus;
 	diff?: DiffInfo[];
 }
@@ -110,19 +112,14 @@ export type EventType =
 	| "server.connected"
 	| "server.heartbeat"
 	| "message.part.updated"
+	| "message.part.delta"
 	| "message.updated"
 	| "session.updated"
 	| "session.status"
 	| "session.diff"
 	| "session.idle";
 
-export type PartType =
-	| "step-start"
-	| "reasoning"
-	| "text"
-	| "step-finish"
-	| "tool_use"
-	| "tool_result";
+export type PartType = "step-start" | "reasoning" | "text" | "step-finish" | "tool";
 
 export interface SessionResponse {
 	id: string;

@@ -5,26 +5,30 @@ export function render(state: State): void {
 
 	let output = "";
 
-	let lastIndex = state.accumulatedResponse.length;
-	while (lastIndex--) {
-		const part = state.accumulatedResponse[lastIndex];
-		if (part?.text) {
-			break;
+	// Only show the last (i.e. active) thinking part
+	// Only show the last (i.e. active) tool use
+	let foundPart = false;
+	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
+		const part = state.accumulatedResponse[i]!;
+		if (part.title === "thinking") {
+			part.active = !foundPart;
+			foundPart = true;
+		} else if (part.title === "tool") {
+			part.active = !foundPart;
+		} else {
+			foundPart = true;
+			part.active = true;
 		}
 	}
 
 	for (let i = 0; i < state.accumulatedResponse.length; i++) {
 		const part = state.accumulatedResponse[i];
-		if (!part.text.trim()) continue;
+		if (!part || !part.active || !part.text.trim()) continue;
 
 		if (part.title === "thinking") {
-			if (i === lastIndex) {
-				output += "💭 Thinking...\n\n";
-				output += `\x1b[90m${part.text}\x1b[0m\n\n`;
-			}
+			output += `💭 \x1b[90m${part.text.trimStart()}\x1b[0m\n\n`;
 		} else if (part.title === "response") {
-			output += "💬 Response:\n\n";
-			output += part.text + "\n\n";
+			output += `💬 ${part.text.trimStart()}\n\n`;
 		} else if (part.title === "tool") {
 			output += part.text + "\n\n";
 		} else if (part.title === "files") {

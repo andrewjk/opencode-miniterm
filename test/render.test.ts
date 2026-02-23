@@ -33,8 +33,12 @@ describe("render", () => {
 			const write = vi.fn();
 			let state = createMockState({ renderedLinesCount: 0, accumulatedResponse: [], write });
 
-			state.accumulatedResponse.push({ title: "thinking", text: "gotta do the thing" });
-			state.accumulatedResponse.push({ title: "thinking", text: "now i know how to do it" });
+			state.accumulatedResponse.push({ key: "xxx", title: "thinking", text: "gotta do the thing" });
+			state.accumulatedResponse.push({
+				key: "xxx",
+				title: "thinking",
+				text: "now i know how to do it",
+			});
 
 			render(state);
 
@@ -44,7 +48,7 @@ describe("render", () => {
 
 			write.mockClear();
 
-			state.accumulatedResponse.push({ title: "response", text: "i've done it" });
+			state.accumulatedResponse.push({ key: "xxx", title: "response", text: "i've done it" });
 
 			render(state);
 
@@ -57,7 +61,7 @@ describe("render", () => {
 		it("should render thinking part with thinking indicator and gray text", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ title: "thinking", text: "分析问题" }],
+				accumulatedResponse: [{ key: "xxx", title: "thinking", text: "分析问题" }],
 				write,
 			});
 
@@ -70,8 +74,8 @@ describe("render", () => {
 			const write = vi.fn();
 			const state = createMockState({
 				accumulatedResponse: [
-					{ title: "thinking", text: "first" },
-					{ title: "thinking", text: "second" },
+					{ key: "xxx", title: "thinking", text: "first" },
+					{ key: "xxx", title: "thinking", text: "second" },
 				],
 				write,
 			});
@@ -86,7 +90,7 @@ describe("render", () => {
 		it("should skip parts with empty text", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ title: "thinking", text: "" }],
+				accumulatedResponse: [{ key: "xxx", title: "thinking", text: "" }],
 				write,
 			});
 
@@ -98,7 +102,7 @@ describe("render", () => {
 		it("should skip null parts", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [null as any, { title: "response", text: "test" }],
+				accumulatedResponse: [null as any, { key: "xxx", title: "response", text: "test" }],
 				write,
 			});
 
@@ -112,7 +116,7 @@ describe("render", () => {
 		it("should render response part with response indicator", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ title: "response", text: "Hello world" }],
+				accumulatedResponse: [{ key: "xxx", title: "response", text: "Hello world" }],
 				write,
 			});
 
@@ -126,7 +130,7 @@ describe("render", () => {
 		it("should render tool part without indicator", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ title: "tool", text: "Running: ls -la" }],
+				accumulatedResponse: [{ key: "xxx", title: "tool", text: "Running: ls -la" }],
 				write,
 			});
 
@@ -140,7 +144,7 @@ describe("render", () => {
 		it("should render files part without indicator", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ title: "files", text: "src/index.ts" }],
+				accumulatedResponse: [{ key: "xxx", title: "files", text: "src/index.ts" }],
 				write,
 			});
 
@@ -154,7 +158,7 @@ describe("render", () => {
 		it("should count lines correctly for multiline output", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ title: "response", text: "line1\nline2\nline3" }],
+				accumulatedResponse: [{ key: "xxx", title: "response", text: "line1\nline2\nline3" }],
 				write,
 			});
 
@@ -176,7 +180,7 @@ describe("render", () => {
 		it("should count lines including newlines from part formatting", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ title: "response", text: "A" }],
+				accumulatedResponse: [{ key: "xxx", title: "response", text: "A" }],
 				write,
 			});
 
@@ -201,8 +205,8 @@ describe("render", () => {
 			const write = vi.fn();
 			const state = createMockState({
 				accumulatedResponse: [
-					{ title: "thinking", text: "" },
-					{ title: "response", text: "" },
+					{ key: "xxx", title: "thinking", text: "" },
+					{ key: "xxx", title: "response", text: "" },
 				],
 				write,
 			});
@@ -218,9 +222,9 @@ describe("render", () => {
 			const write = vi.fn();
 			const state = createMockState({
 				accumulatedResponse: [
-					{ title: "thinking", text: "分析中" },
-					{ title: "tool", text: "Running: npm test" },
-					{ title: "response", text: "Test results: 5 passed" },
+					{ key: "xxx", title: "thinking", text: "分析中" },
+					{ key: "xxx", title: "tool", text: "Running: npm test" },
+					{ key: "xxx", title: "response", text: "Test results: 5 passed" },
 				],
 				write,
 			});

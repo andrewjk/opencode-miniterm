@@ -31,11 +31,9 @@ const SLASH_COMMANDS = [
 	{ command: "/help", description: "Show this help message" },
 ];
 
-let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
-let thinkingStartTime: number | null = null;
-let allParts: Part[] = [];
+let allEvents: ServerEvent[] = [];
 
 interface ModelInfo {
 	providerID: string;
@@ -50,8 +48,10 @@ let selectedModelIndex = 0;
 let modelListLineCount = 0;
 
 interface AccumulatedPart {
+	key: string;
 	title: string;
 	text: string;
+	active?: boolean;
 	durationMs?: number;
 }
 
@@ -327,13 +327,26 @@ async function main() {
 function processEvent(event: ServerEvent): void {
 	lastEventTime = Date.now();
 
+	// Store all events for debugging
+	allEvents.push(event);
+
 	switch (event.type) {
 		case "message.part.updated":
-			processPart(event.properties.part!, event.properties.delta);
+			const part = event.properties.part;
+			if (part) {
+				processPart(event.properties.part);
+			}
+			break;
+
+		case "message.part.delta":
+			processDelta(event.properties.partID, event.properties.delta);
 			break;
 
 		case "session.diff":
-			processDiff(event.properties.diff);
+			const diff = event.properties.diff;
+			if (diff && diff.length > 0) {
+				processDiff(diff);
+			}
 			break;
 
 		case "session.idle":
@@ -348,31 +361,26 @@ function processEvent(event: ServerEvent): void {
 	}
 }
 
-function processPart(part: Part, delta: string | undefined): void {
-	// Store all parts for debugging
-	allParts.push(part);
-
-	const partKey = `${part.messageID}-${part.id}`;
-
+function processPart(part: Part): void {
 	switch (part.type) {
 		case "step-start":
 			processStepStart();
 			break;
 
 		case "reasoning":
-			processReasoning(part, partKey, delta);
+			processReasoning(part);
 			break;
 
 		case "text":
 			if (processing) {
-				processText(part, partKey, delta);
+				processText(part);
 			}
 			break;
 
 		case "step-finish":
 			break;
 
-		case "tool_use":
+		case "tool":
 			processToolUse(part);
 			break;
 
@@ -382,106 +390,82 @@ function processPart(part: Part, delta: string | undefined): void {
 }
 
 function processStepStart() {
-	thinkingStartTime = Date.now();
-	// Don't create empty thinking part - wait for actual reasoning content
 	processing = true;
 }
 
-function processReasoning(part: Part, partKey: string, delta: string | undefined) {
-	if (delta) {
-		let thinkingPart = findLastPart("thinking");
-		if (!thinkingPart) {
-			thinkingPart = { title: "thinking", text: "" };
-			state.accumulatedResponse.push(thinkingPart);
-		}
-		thinkingPart.text += delta;
-
-		render(state);
+function processReasoning(part: Part) {
+	processing = true;
+	let thinkingPart = findLastPart(part.id);
+	if (!thinkingPart) {
+		thinkingPart = { key: part.id, title: "thinking", text: part.text };
+		state.accumulatedResponse.push(thinkingPart);
+	} else {
+		thinkingPart.text = part.text;
 	}
+
+	// TODO: Only if it's changed?
+	render(state);
 }
 
-function processText(part: Part, partKey: string, delta: string | undefined) {
-	if (delta && !seenParts.has(partKey)) {
-		seenParts.add(partKey);
-		seenParts.add(partKey + "_final");
-
-		// TODO: I think this goes somewhere better
-		const thinkingPart = findLastPart("thinking");
-		if (thinkingPart && thinkingStartTime) {
-			const startTime = part.time?.start ?? thinkingStartTime;
-			const endTime = part.time?.end ?? Date.now();
-			thinkingPart.durationMs = endTime - startTime;
-			thinkingStartTime = null;
-		}
-
-		// Only create response part when we actually have content
-		if (delta) {
-			state.accumulatedResponse.push({ title: "response", text: delta });
-		}
+function processText(part: Part) {
+	let responsePart = findLastPart(part.id);
+	if (!responsePart) {
+		responsePart = { key: part.id, title: "response", text: part.text };
+		state.accumulatedResponse.push(responsePart);
+	} else {
+		responsePart.text = part.text;
 	}
 
-	if (delta) {
-		const responsePart = findLastPart("response");
-		if (responsePart) {
-			responsePart.text += delta;
-		}
-	} else if (part.text && !seenParts.has(partKey + "_final")) {
-		seenParts.add(partKey + "_final");
+	// TODO: Only if it's changed?
+	render(state);
+}
 
-		let responsePart = findLastPart("response");
-		if (!responsePart) {
-			// Create response part if it doesn't exist
-			responsePart = { title: "response", text: "" };
-			state.accumulatedResponse.push(responsePart);
-		}
-		if (responsePart) {
-			responsePart.text += part.text + "\n";
-		}
+function processToolUse(part: Part) {
+	const toolText = `🔧 Using tool: ${part.tool || "unknown"}`;
+
+	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
+		state.accumulatedResponse[state.accumulatedResponse.length - 1]!.text = toolText;
+	} else {
+		state.accumulatedResponse.push({ key: part.id, title: "tool", text: toolText });
 	}
 
-	// Clean up empty parts before rendering
-	state.accumulatedResponse = state.accumulatedResponse.filter(
-		(part) => part.text && part.text.trim() !== "",
-	);
+	render(state);
+}
+
+function processDelta(partID: string, delta: string) {
+	let responsePart = findLastPart(partID);
+	if (responsePart) {
+		responsePart.text += delta;
+	}
+
+	// TODO: Only if it's changed?
+	render(state);
+}
+
+function processDiff(diff: DiffInfo[]) {
+	const parts: string[] = [];
+	for (const file of diff) {
+		const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
+		const statusLabel =
+			file.status === "added" ? "added" : file.status === "modified" ? "modified" : "deleted";
+		const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
+		const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
+		const stats = [addStr, delStr].filter(Boolean).join(" ");
+		const line = `  \x1b[34m${statusIcon}\x1b[0m ${file.file} (${statusLabel}) ${stats}`;
+		parts.push(line);
+	}
+
+	state.accumulatedResponse.push({ key: "diff", title: "files", text: parts.join("\n") });
+
 	render(state);
 }
 
 function findLastPart(title: string) {
-	let i = state.accumulatedResponse.length;
-	while (i--) {
+	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
 		const part = state.accumulatedResponse[i];
-		if (part?.title === title) {
+		if (part?.key === title) {
 			return part;
 		}
-	}
-}
-
-function processToolUse(part: Part) {
-	const toolText = `🔧 Using tool: ${part.name || "unknown"}`;
-
-	state.accumulatedResponse.push({ title: "tool", text: toolText });
-
-	render(state);
-}
-
-function processDiff(diff: DiffInfo[] | undefined) {
-	let diffText = "";
-	if (diff && diff.length > 0) {
-		const parts: string[] = [];
-		for (const file of diff) {
-			const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
-			const statusLabel =
-				file.status === "added" ? "added" : file.status === "modified" ? "modified" : "deleted";
-			const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
-			const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
-			const stats = [addStr, delStr].filter(Boolean).join(" ");
-			const line = `  \x1b[34m${statusIcon}\x1b[0m ${file.file} (${statusLabel}) ${stats}`;
-			parts.push(line);
-		}
-
-		state.accumulatedResponse.push({ title: "files", text: parts.join("\n") });
-
-		render(state);
 	}
 }
 
@@ -542,7 +526,7 @@ async function startOpenCodeServer() {
 
 	let started = false;
 
-	console.log("\n\x1b[90mStarting server...\x1b[0m\n");
+	console.log("\n\x1b[90mStarting OpenCode server...\x1b[0m\n");
 
 	serverProcess.stdout.on("data", (data) => {
 		if (!started) {
@@ -656,9 +640,8 @@ async function createSession(): Promise<string> {
 
 async function sendMessage(sessionId: string, message: string) {
 	processing = false;
-	seenParts.clear();
 	state.accumulatedResponse = [];
-	allParts = [];
+	allEvents = [];
 
 	const response = await fetchWithTimeout(
 		`${SERVER_URL}/session/${sessionId}/message`,
@@ -866,12 +849,30 @@ function runDebug(): void {
 	console.log("\n🔧 Debug: All parts from the most recent request");
 	console.log("=".repeat(50));
 
-	if (allParts.length === 0) {
+	if (allEvents.length === 0) {
 		console.log("No parts stored yet. Send a message first.");
 	} else {
-		console.log(JSON.stringify(allParts, null, 2));
+		for (let part of allEvents) {
+			stripLongStrings(part);
+		}
+		console.log(JSON.stringify(allEvents, null, 2));
 	}
 
 	console.log("\n" + "=".repeat(50));
 	console.log();
+}
+
+function stripLongStrings(target: Record<PropertyKey, any>) {
+	for (let prop in target) {
+		if (prop !== "text" && prop !== "delta") {
+			let value = target[prop];
+			if (typeof value === "string") {
+				if (value.length > 255) {
+					target[prop] = value.substring(0, 252) + "...";
+				}
+			} else if (typeof value === "object") {
+				stripLongStrings(value);
+			}
+		}
+	}
 }
