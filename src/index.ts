@@ -153,6 +153,11 @@ async function main() {
 		};
 
 		process.stdin.on("keypress", async (str, key) => {
+			if (key.name === "tab" && !showCompletions) {
+				handleTab();
+				return;
+			}
+
 			if (showCompletions && (key.name === "up" || key.name === "down")) {
 				if (key.name === "up") {
 					selectedCompletion =
