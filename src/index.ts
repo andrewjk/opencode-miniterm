@@ -27,6 +27,7 @@ const SLASH_COMMANDS = [
 	{ command: "/init", description: "Analyze project and create/update AGENTS.md" },
 	{ command: "/model", description: "List available models" },
 	{ command: "/undo", description: "Undo last message" },
+	{ command: "/debug", description: "Show all parts from the most recent request" },
 	{ command: "/help", description: "Show this help message" },
 ];
 
@@ -34,6 +35,7 @@ let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
 let thinkingStartTime: number | null = null;
+let allParts: Part[] = [];
 
 interface ModelInfo {
 	providerID: string;
@@ -157,6 +159,8 @@ async function main() {
 						await runModel(sessionId);
 					} else if (input === "/undo") {
 						await runUndo(sessionId);
+					} else if (input === "/debug") {
+						runDebug();
 					} else if (input === "/help") {
 						console.log("\nAvailable commands:");
 						for (const cmd of SLASH_COMMANDS) {
@@ -334,7 +338,6 @@ function processEvent(event: ServerEvent): void {
 		case "session.status":
 			if (event.properties.status?.type === "idle") {
 				process.stdout.write("\x1b[?25h");
-				process.stdout.write("\n> ");
 			}
 			break;
 
@@ -344,6 +347,9 @@ function processEvent(event: ServerEvent): void {
 }
 
 function processPart(part: Part, delta: string | undefined): void {
+	// Store all parts for debugging
+	allParts.push(part);
+
 	const partKey = `${part.messageID}-${part.id}`;
 
 	switch (part.type) {
@@ -639,6 +645,7 @@ async function sendMessage(sessionId: string, message: string) {
 	processing = false;
 	seenParts.clear();
 	state.accumulatedResponse = [];
+	allParts = [];
 
 	const response = await fetchWithTimeout(
 		`${SERVER_URL}/session/${sessionId}/message`,
@@ -840,4 +847,18 @@ async function runUndo(sessionId: string): Promise<void> {
 	}
 
 	console.log("Successfully reverted last message.\n");
+}
+
+function runDebug(): void {
+	console.log("\n🔧 Debug: All parts from the most recent request");
+	console.log("=".repeat(50));
+
+	if (allParts.length === 0) {
+		console.log("No parts stored yet. Send a message first.");
+	} else {
+		console.log(JSON.stringify(allParts, null, 2));
+	}
+
+	console.log("\n" + "=".repeat(50));
+	console.log();
 }
