@@ -735,6 +735,11 @@ async function runModel(sessionId: string): Promise<void> {
 		}
 	}
 
+	modelList.sort(
+		(a, b) =>
+			a.providerName.localeCompare(b.providerName) || a.modelName.localeCompare(b.modelName),
+	);
+
 	selectedModelIndex = modelList.findIndex(
 		(m) => m.providerID === config.providerID && m.modelID === config.modelID,
 	);
