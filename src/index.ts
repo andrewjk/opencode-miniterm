@@ -21,6 +21,13 @@ const SERVER_URL = "http://127.0.0.1:4096";
 const AUTH_USERNAME = process.env.OPENCODE_SERVER_USERNAME || "opencode";
 const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
 
+const SLASH_COMMANDS = [
+	{ command: "/init", description: "Analyze project and create/update AGENTS.md" },
+	{ command: "/model", description: "List available models" },
+	{ command: "/undo", description: "Undo last message" },
+	{ command: "/help", description: "Show this help message" },
+];
+
 let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
@@ -50,44 +57,162 @@ async function main() {
 			output: process.stdout,
 		});
 
-		const ask = (): Promise<void> => {
-			return new Promise((resolve) => {
-				rl.question("> ", async (input) => {
-					if (input.trim()) {
-						try {
-							const trimmed = input.trim();
+		readline.emitKeypressEvents(process.stdin);
+		if (process.stdin.setRawMode) {
+			process.stdin.setRawMode(true);
+		}
 
-							if (trimmed === "/init") {
-								await runInit(sessionId);
-							} else if (trimmed === "/model" || trimmed === "/models") {
-								await runModel(sessionId);
-							} else if (trimmed === "/undo") {
-								await runUndo(sessionId);
-							} else if (trimmed === "/help") {
-								console.log("\nAvailable commands:");
-								console.log("  /init   - Analyze project and create/update AGENTS.md");
-								console.log("  /model  - List available models");
-								console.log("  /undo   - Undo last message");
-								console.log("  /help   - Show this help message");
-								console.log();
-							} else {
-								console.log();
-								console.log("👉 Sending...");
-								console.log();
-								renderedLinesCount = 3;
+		let inputBuffer = "";
+		let cursorPosition = 0;
+		let completions: string[] = [];
+		let selectedCompletion = 0;
+		let showCompletions = false;
 
-								await sendMessage(sessionId, input);
-							}
-						} catch (error: any) {
-							console.error("Error:", error.message);
-						}
-					}
-					ask();
-				});
-			});
+		const getCompletions = (text: string): string[] => {
+			if (text.startsWith("/")) {
+				return SLASH_COMMANDS.map((c) => c.command).filter((cmd) => cmd.startsWith(text));
+			}
+			return [];
 		};
 
-		ask();
+		const renderLine = (): void => {
+			readline.cursorTo(process.stdout, 0);
+			readline.clearScreenDown(process.stdout);
+			process.stdout.write("> " + inputBuffer);
+
+			if (showCompletions && completions.length > 0) {
+				process.stdout.write("\n\n");
+				for (let i = 0; i < completions.length; i++) {
+					const cmd = completions[i]!;
+					const desc = SLASH_COMMANDS.find((c) => c.command === cmd)?.description || "";
+					const prefix = i === selectedCompletion ? "→ " : "  ";
+					process.stdout.write(`${prefix}\x1b[90m${cmd}\x1b[0m`);
+					if (desc) {
+						process.stdout.write(` \x1b[90m- ${desc}\x1b[0m`);
+					}
+					process.stdout.write("\n");
+				}
+				readline.cursorTo(process.stdout, 0, 2 + completions.length);
+				readline.moveCursor(process.stdout, 0, -(2 + completions.length - 1));
+			}
+		};
+
+		const handleTab = (): void => {
+			const potentialCompletions = getCompletions(inputBuffer);
+
+			if (potentialCompletions.length === 0) {
+				return;
+			}
+
+			if (!showCompletions) {
+				completions = potentialCompletions;
+				selectedCompletion = 0;
+				showCompletions = true;
+				renderLine();
+			} else {
+				selectedCompletion = (selectedCompletion + 1) % completions.length;
+				renderLine();
+			}
+		};
+
+		const acceptInput = async (): Promise<void> => {
+			process.stdout.write("\n");
+			const input = inputBuffer.trim();
+
+			if (input) {
+				try {
+					if (input === "/init") {
+						await runInit(sessionId);
+					} else if (input === "/model" || input === "/models") {
+						await runModel(sessionId);
+					} else if (input === "/undo") {
+						await runUndo(sessionId);
+					} else if (input === "/help") {
+						console.log("\nAvailable commands:");
+						for (const cmd of SLASH_COMMANDS) {
+							console.log(`  ${cmd.command} - ${cmd.description}`);
+						}
+						console.log();
+					} else {
+						console.log("👉 Sending...");
+						console.log();
+						renderedLinesCount = 3;
+
+						await sendMessage(sessionId, input);
+					}
+				} catch (error: any) {
+					console.error("Error:", error.message);
+				}
+			}
+
+			inputBuffer = "";
+			cursorPosition = 0;
+			showCompletions = false;
+			completions = [];
+			process.stdout.write("> ");
+		};
+
+		process.stdin.on("keypress", async (str, key) => {
+			if (showCompletions && (key.name === "up" || key.name === "down")) {
+				if (key.name === "up") {
+					selectedCompletion =
+						selectedCompletion > 0 ? selectedCompletion - 1 : completions.length - 1;
+				} else {
+					selectedCompletion = (selectedCompletion + 1) % completions.length;
+				}
+				renderLine();
+				return;
+			}
+
+			if (showCompletions && (key.name === "escape" || key.name === "tab")) {
+				if (key.name === "escape") {
+					showCompletions = false;
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
+					process.stdout.write("> " + inputBuffer);
+				} else if (key.name === "tab" && completions.length > 0) {
+					inputBuffer = completions[selectedCompletion]!;
+					cursorPosition = inputBuffer.length;
+					showCompletions = false;
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
+					process.stdout.write("> " + inputBuffer);
+				}
+				return;
+			}
+
+			if (key.name === "return") {
+				await acceptInput();
+				return;
+			}
+
+			if (key.name === "backspace") {
+				if (cursorPosition > 0) {
+					inputBuffer =
+						inputBuffer.slice(0, cursorPosition - 1) + inputBuffer.slice(cursorPosition);
+					cursorPosition--;
+				}
+			} else if (key.name === "delete") {
+				if (cursorPosition < inputBuffer.length) {
+					inputBuffer =
+						inputBuffer.slice(0, cursorPosition) + inputBuffer.slice(cursorPosition + 1);
+				}
+			} else if (key.name === "left") {
+				if (cursorPosition > 0) cursorPosition--;
+			} else if (key.name === "right") {
+				if (cursorPosition < inputBuffer.length) cursorPosition++;
+			} else if (str) {
+				inputBuffer =
+					inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
+				cursorPosition += str.length;
+			}
+
+			showCompletions = false;
+			completions = [];
+			renderLine();
+		});
+
+		process.stdout.write("> ");
 	} catch (error: any) {
 		console.error("Error:", error.message);
 		serverProcess.kill();
