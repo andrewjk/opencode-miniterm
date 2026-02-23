@@ -162,8 +162,8 @@ function processReasoning(part: Part, partKey: string, delta: string | undefined
 		let thinkingPart: AccumulatedPart | null = null;
 		let i = accumulatedResponse.length;
 		while (i--) {
-			if (accumulatedResponse[i].title === "thinking") {
-				thinkingPart = accumulatedResponse[i];
+			if (accumulatedResponse[i]!.title === "thinking") {
+				thinkingPart = accumulatedResponse[i]!;
 				break;
 			}
 		}
@@ -247,18 +247,23 @@ function render(): void {
 
 	let output = "";
 
-	for (const part of accumulatedResponse) {
-		if (part.title === "thinking" && part.text) {
-			output += "\x1b[37m💭 Thinking...\n";
-			output += part.text + "\n\x1b[0m";
-		} else if (part.title === "response" && part.text) {
-			output += "💬 Response:\n";
+	for (let i = 0; i < accumulatedResponse.length; i++) {
+		const part = accumulatedResponse[i];
+		if (!part || !part.text) continue;
+
+		if (part.title === "thinking" && i === accumulatedResponse.length - 1) {
+			output += "💭 Thinking...\n\n";
+			output += `\x1b[90m${part.text}\x1b[0m`;
+		} else if (part.title === "response") {
+			output += "💬 Response:\n\n";
 			output += part.text + "\n";
 		} else if (part.title === "tool") {
-			output += part.text + "\n";
-		} else if (part.title === "files" && part.text) {
-			output += part.text + "\n";
+			output += part.text + "\n\n";
+		} else if (part.title === "files") {
+			output += part.text + "\n\n";
 		}
+
+		output += "\n";
 	}
 
 	if (output) {
@@ -457,11 +462,6 @@ async function sendMessage(sessionId: string, message: string) {
 		const error = await response.text();
 		throw new Error(`Failed to send message (${response.status}): ${error}`);
 	}
-
-	console.log();
-	console.log("--- Accumulated Response ---");
-	console.log(JSON.stringify(accumulatedResponse, null, 2));
-	console.log("----------------------------");
 }
 
 function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
