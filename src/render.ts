@@ -1,22 +1,39 @@
 import { type State } from ".";
 
-export function render(state: State): void {
+export function render(state: State, details = false): void {
 	clearRenderedLines(state);
 
 	let output = "";
 
+	if (details) {
+		output += "📋 Detailed output from the last run:\n\n";
+	}
+
 	// Only show the last (i.e. active) thinking part
 	// Only show the last (i.e. active) tool use
+	// Only show the last files part between parts
 	let foundPart = false;
+	let foundPartBetweenFiles = false;
 	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
 		const part = state.accumulatedResponse[i]!;
+		if (details) {
+			part.active = true;
+			continue;
+		}
+
 		if (part.title === "thinking") {
 			part.active = !foundPart;
 			foundPart = true;
+			foundPartBetweenFiles = part.active;
 		} else if (part.title === "tool") {
 			part.active = !foundPart;
+			foundPartBetweenFiles = part.active;
+		} else if (part.title === "files") {
+			part.active = foundPartBetweenFiles;
+			foundPartBetweenFiles = false;
 		} else {
 			foundPart = true;
+			foundPartBetweenFiles = true;
 			part.active = true;
 		}
 	}

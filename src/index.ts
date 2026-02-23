@@ -27,9 +27,10 @@ const SLASH_COMMANDS = [
 	{ command: "/init", description: "Analyze project and create/update AGENTS.md" },
 	{ command: "/models", description: "List available models" },
 	{ command: "/undo", description: "Undo last message" },
+	{ command: "/details", description: "Show all parts from the last response" },
+	{ command: "/debug", description: "Show raw events from the last request" },
 	{ command: "/exit", description: "Exit the application" },
 	{ command: "/help", description: "Show this help message" },
-	{ command: "/debug", description: "Show all parts from the most recent request" },
 ];
 
 let processing = true;
@@ -162,6 +163,8 @@ async function main() {
 						await runModel(sessionId);
 					} else if (input === "/undo") {
 						await runUndo(sessionId);
+					} else if (input === "/details") {
+						runDetails();
 					} else if (input === "/debug") {
 						runDebug();
 					} else if (input === "/exit") {
@@ -337,12 +340,16 @@ function processEvent(event: ServerEvent): void {
 		case "message.part.updated":
 			const part = event.properties.part;
 			if (part) {
-				processPart(event.properties.part);
+				processPart(part);
 			}
 			break;
 
 		case "message.part.delta":
-			processDelta(event.properties.partID, event.properties.delta);
+			const partID = event.properties.partID;
+			const delta = event.properties.delta;
+			if (partID !== undefined && delta !== undefined) {
+				processDelta(partID, delta);
+			}
 			break;
 
 		case "session.diff":
@@ -400,10 +407,10 @@ function processReasoning(part: Part) {
 	processing = true;
 	let thinkingPart = findLastPart(part.id);
 	if (!thinkingPart) {
-		thinkingPart = { key: part.id, title: "thinking", text: part.text };
+		thinkingPart = { key: part.id, title: "thinking", text: part.text || "" };
 		state.accumulatedResponse.push(thinkingPart);
 	} else {
-		thinkingPart.text = part.text;
+		thinkingPart.text = part.text || "";
 	}
 
 	// TODO: Only if it's changed?
@@ -413,10 +420,10 @@ function processReasoning(part: Part) {
 function processText(part: Part) {
 	let responsePart = findLastPart(part.id);
 	if (!responsePart) {
-		responsePart = { key: part.id, title: "response", text: part.text };
+		responsePart = { key: part.id, title: "response", text: part.text || "" };
 		state.accumulatedResponse.push(responsePart);
 	} else {
-		responsePart.text = part.text;
+		responsePart.text = part.text || "";
 	}
 
 	// TODO: Only if it's changed?
@@ -424,7 +431,7 @@ function processText(part: Part) {
 }
 
 function processToolUse(part: Part) {
-	const toolText = `🔧 Using tool: ${part.tool || "unknown"}`;
+	const toolText = `🔧 Using \`${part.tool || "unknown"}\``;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
 		state.accumulatedResponse[state.accumulatedResponse.length - 1]!.text = toolText;
@@ -849,6 +856,10 @@ async function runUndo(sessionId: string): Promise<void> {
 	}
 
 	console.log("Successfully reverted last message.\n");
+}
+
+function runDetails(): void {
+	render(state, true);
 }
 
 function runDebug(): void {
