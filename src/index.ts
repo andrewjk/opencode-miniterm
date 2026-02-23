@@ -76,6 +76,7 @@ async function main() {
 		let completions: string[] = [];
 		let selectedCompletion = 0;
 		let showCompletions = false;
+		let completionCycling = false;
 
 		const getCompletions = (text: string): string[] => {
 			if (text.startsWith("/")) {
@@ -88,38 +89,27 @@ async function main() {
 			readline.cursorTo(process.stdout, 0);
 			readline.clearScreenDown(process.stdout);
 			process.stdout.write("> " + inputBuffer);
-
-			if (showCompletions && completions.length > 0) {
-				process.stdout.write("\n\n");
-				for (let i = 0; i < completions.length; i++) {
-					const cmd = completions[i]!;
-					const desc = SLASH_COMMANDS.find((c) => c.command === cmd)?.description || "";
-					const prefix = i === selectedCompletion ? "→ " : "  ";
-					process.stdout.write(`${prefix}\x1b[90m${cmd}\x1b[0m`);
-					if (desc) {
-						process.stdout.write(` \x1b[90m- ${desc}\x1b[0m`);
-					}
-					process.stdout.write("\n");
-				}
-				readline.cursorTo(process.stdout, 0, 2 + completions.length);
-				readline.moveCursor(process.stdout, 0, -(2 + completions.length - 1));
-			}
 		};
 
 		const handleTab = (): void => {
 			const potentialCompletions = getCompletions(inputBuffer);
 
 			if (potentialCompletions.length === 0) {
+				completionCycling = false;
 				return;
 			}
 
-			if (!showCompletions) {
+			if (!completionCycling) {
 				completions = potentialCompletions;
 				selectedCompletion = 0;
-				showCompletions = true;
+				completionCycling = true;
+				inputBuffer = completions[0]!;
+				cursorPosition = inputBuffer.length;
 				renderLine();
 			} else {
 				selectedCompletion = (selectedCompletion + 1) % completions.length;
+				inputBuffer = completions[selectedCompletion]!;
+				cursorPosition = inputBuffer.length;
 				renderLine();
 			}
 		};
@@ -157,41 +147,27 @@ async function main() {
 			inputBuffer = "";
 			cursorPosition = 0;
 			showCompletions = false;
+			completionCycling = false;
 			completions = [];
 			process.stdout.write("> ");
 		};
 
 		process.stdin.on("keypress", async (str, key) => {
-			if (key.name === "tab" && !showCompletions) {
+			if (key.name === "tab" && !completionCycling) {
 				handleTab();
 				return;
 			}
 
-			if (showCompletions && (key.name === "up" || key.name === "down")) {
-				if (key.name === "up") {
-					selectedCompletion =
-						selectedCompletion > 0 ? selectedCompletion - 1 : completions.length - 1;
-				} else {
-					selectedCompletion = (selectedCompletion + 1) % completions.length;
-				}
-				renderLine();
+			if (key.name === "tab" && completionCycling && completions.length > 0) {
+				handleTab();
 				return;
 			}
 
-			if (showCompletions && (key.name === "escape" || key.name === "tab")) {
-				if (key.name === "escape") {
-					showCompletions = false;
-					readline.cursorTo(process.stdout, 0);
-					readline.clearScreenDown(process.stdout);
-					process.stdout.write("> " + inputBuffer);
-				} else if (key.name === "tab" && completions.length > 0) {
-					inputBuffer = completions[selectedCompletion]!;
-					cursorPosition = inputBuffer.length;
-					showCompletions = false;
-					readline.cursorTo(process.stdout, 0);
-					readline.clearScreenDown(process.stdout);
-					process.stdout.write("> " + inputBuffer);
-				}
+			if (key.name === "escape") {
+				completionCycling = false;
+				readline.cursorTo(process.stdout, 0);
+				readline.clearScreenDown(process.stdout);
+				process.stdout.write("> " + inputBuffer);
 				return;
 			}
 
@@ -222,6 +198,7 @@ async function main() {
 			}
 
 			showCompletions = false;
+			completionCycling = false;
 			completions = [];
 			renderLine();
 		});
