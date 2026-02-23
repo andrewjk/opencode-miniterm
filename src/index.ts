@@ -33,6 +33,7 @@ const SLASH_COMMANDS = [
 let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
+let thinkingStartTime: number | null = null;
 
 interface ModelInfo {
 	providerID: string;
@@ -49,6 +50,7 @@ let modelListLineCount = 0;
 interface AccumulatedPart {
 	title: string;
 	text: string;
+	duration?: number;
 }
 
 export interface State {
@@ -332,6 +334,7 @@ function processEvent(event: ServerEvent): void {
 		case "session.status":
 			if (event.properties.status?.type === "idle") {
 				process.stdout.write("\x1b[?25h");
+				process.stdout.write("\n> ");
 			}
 			break;
 
@@ -371,6 +374,7 @@ function processPart(part: Part, delta: string | undefined): void {
 }
 
 function processStepStart() {
+	thinkingStartTime = Date.now();
 	state.accumulatedResponse.push({ title: "thinking", text: "" });
 
 	render(state);
@@ -379,14 +383,15 @@ function processStepStart() {
 
 function processReasoning(part: Part, partKey: string, delta: string | undefined) {
 	if (delta) {
-		let thinkingPart: AccumulatedPart | null = null;
-		let i = state.accumulatedResponse.length;
-		while (i--) {
-			if (state.accumulatedResponse[i]!.title === "thinking") {
-				thinkingPart = state.accumulatedResponse[i]!;
-				break;
-			}
-		}
+		//let thinkingPart: AccumulatedPart | null = null;
+		//let i = state.accumulatedResponse.length;
+		//while (i--) {
+		//	if (state.accumulatedResponse[i]!.title === "thinking") {
+		//		thinkingPart = state.accumulatedResponse[i]!;
+		//		break;
+		//	}
+		//}
+		let thinkingPart = findLastPart("thinking");
 		if (thinkingPart) {
 			thinkingPart.text += delta;
 		}
@@ -400,24 +405,41 @@ function processText(part: Part, partKey: string, delta: string | undefined) {
 		seenParts.add(partKey);
 		seenParts.add(partKey + "_final");
 
+		const thinkingPart = findLastPart("thinking"); // state.accumulatedResponse.find((p) => p.title === "thinking");
+		if (thinkingPart && thinkingStartTime) {
+			const startTime = part.time?.start ?? thinkingStartTime;
+			const endTime = part.time?.end ?? Date.now();
+			thinkingPart.duration = Math.round((endTime - startTime) / 1000);
+			thinkingStartTime = null;
+		}
+
 		state.accumulatedResponse.push({ title: "response", text: "" });
 	}
 
 	if (delta) {
-		const responsePart = state.accumulatedResponse.find((p) => p.title === "response");
+		const responsePart = findLastPart("response"); // state.accumulatedResponse.find((p) => p.title === "response");
 		if (responsePart) {
 			responsePart.text += delta;
 		}
 	} else if (part.text && !seenParts.has(partKey + "_final")) {
 		seenParts.add(partKey + "_final");
 
-		const responsePart = state.accumulatedResponse.find((p) => p.title === "response");
+		const responsePart = findLastPart("response"); // state.accumulatedResponse.find((p) => p.title === "response");
 		if (responsePart) {
 			responsePart.text += part.text + "\n";
 		}
 	}
 
 	render(state);
+}
+
+function findLastPart(title: string) {
+	let i = state.accumulatedResponse.length;
+	while (i--) {
+		if (state.accumulatedResponse[i].title === title) {
+			return state.accumulatedResponse[i];
+		}
+	}
 }
 
 function processToolUse(part: Part) {

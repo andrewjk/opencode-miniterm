@@ -24,6 +24,8 @@ export function render(state: State): void {
 			if (i === lastIndex) {
 				output += "💭 Thinking...\n\n";
 				output += `\x1b[90m${part.text}\x1b[0m\n\n`;
+			} else if (part.duration !== undefined) {
+				output += `💭 Thought for ${part.duration}s\n\n`;
 			}
 		} else if (part.title === "response") {
 			output += "💬 Response:\n\n";
