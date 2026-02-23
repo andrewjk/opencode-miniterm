@@ -24,7 +24,7 @@ const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
 let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
-let statusLineCount = 0;
+let renderedLinesCount = 0;
 let reasoningText = "";
 
 interface AccumulatedPart {
@@ -74,7 +74,7 @@ async function main() {
 								console.log();
 								console.log("👉 Sending...");
 								console.log();
-								statusLineCount = 2;
+								renderedLinesCount = 2;
 
 								await sendMessage(sessionId, input);
 							}
@@ -146,42 +146,39 @@ function processPart(part: Part, delta: string | undefined): void {
 }
 
 function processStepStart() {
-	clearStatusLine();
+	clearRenderedLines();
 
-	writeLine("💭 Thinking...");
-	writeLine();
-	statusLineCount = 2;
 	reasoningText = "";
-
 	accumulatedResponse.push({ title: "thinking", text: "" });
 
+	render();
 	processing = true;
 }
 
 function processReasoning(part: Part, partKey: string, delta: string | undefined) {
 	if (delta) {
 		reasoningText += delta;
-		const consoleWidth = process.stdout.columns || 80;
-		statusLineCount = getWrappedLineCount(reasoningText, consoleWidth);
-		printReasoning(delta);
 
-		const thinkingPart = accumulatedResponse.find((p) => p.title === "thinking");
+		let thinkingPart: AccumulatedPart | null = null;
+		let i = accumulatedResponse.length;
+		while (i--) {
+			if (accumulatedResponse[i].title === "thinking") {
+				thinkingPart = accumulatedResponse[i];
+				break;
+			}
+		}
 		if (thinkingPart) {
 			thinkingPart.text += delta;
 		}
+
+		render();
 	} else if (part.time?.end) {
 		reasoningText = "";
-		writeLine();
 	}
 }
 
 function processText(part: Part, partKey: string, delta: string | undefined) {
 	if (delta && !seenParts.has(partKey)) {
-		clearStatusLine();
-		writeLine("💬 Response:");
-		writeLine();
-		statusLineCount = 2;
-
 		seenParts.add(partKey);
 		seenParts.add(partKey + "_final");
 
@@ -189,38 +186,31 @@ function processText(part: Part, partKey: string, delta: string | undefined) {
 	}
 
 	if (delta) {
-		process.stdout.write(delta);
-
 		const responsePart = accumulatedResponse.find((p) => p.title === "response");
 		if (responsePart) {
 			responsePart.text += delta;
 		}
 	} else if (part.text && !seenParts.has(partKey + "_final")) {
-		writeLine(part.text);
 		seenParts.add(partKey + "_final");
 
 		const responsePart = accumulatedResponse.find((p) => p.title === "response");
 		if (responsePart) {
 			responsePart.text += part.text + "\n";
 		}
-	} else if (part.text) {
-		writeLine();
 	}
+
+	render();
 }
 
 function processToolUse(part: Part) {
-	clearStatusLine();
 	const toolText = `🔧 Using tool: ${part.name || "unknown"}`;
-	writeLine(toolText);
-	writeLine();
-	statusLineCount = 2;
 
 	accumulatedResponse.push({ title: "tool", text: toolText });
+
+	render();
 }
 
 function processDiff(diff: DiffInfo[] | undefined) {
-	clearStatusLine();
-
 	let diffText = "";
 	if (diff && diff.length > 0) {
 		for (const file of diff) {
@@ -231,57 +221,50 @@ function processDiff(diff: DiffInfo[] | undefined) {
 			const delStr = file.deletions > 0 ? `-${file.deletions}` : "";
 			const stats = [addStr, delStr].filter(Boolean).join(" ");
 			const line = `  ${statusIcon} ${file.file} (${statusLabel}) ${stats}`;
-			writeLine(line);
 			diffText += line + "\n";
 		}
-		writeLine();
-		statusLineCount = diff.length + 1;
 
 		accumulatedResponse.push({ title: "files", text: diffText.trim() });
+
+		render();
 	}
-}
-
-function printReasoning(text: string): void {
-	// Print reasoning in a muted color
-	write(`\x1b[90m${text}\x1b[0m`);
-}
-
-function getWrappedLineCount(text: string, consoleWidth: number): number {
-	if (!text) return 0;
-	let lines = 1;
-	let currentLineLength = 0;
-
-	for (const char of text) {
-		if (char === "\n") {
-			lines++;
-			currentLineLength = 0;
-		} else {
-			currentLineLength++;
-			if (currentLineLength >= consoleWidth) {
-				lines++;
-				currentLineLength = 0;
-			}
-		}
-	}
-
-	return lines;
-}
-
-function clearStatusLine(): void {
-	if (statusLineCount > 0) {
-		// Clear `statusLineCount` lines
-		process.stdout.write(`\x1b[${statusLineCount}A\x1b[J`);
-		statusLineCount = 0;
-	}
-}
-
-function write(text: string) {
-	process.stdout.write(text);
 }
 
 function writeLine(text?: string) {
 	text ??= "";
 	process.stdout.write(text + "\n");
+}
+
+function clearRenderedLines(): void {
+	if (renderedLinesCount > 0) {
+		process.stdout.write(`\x1b[${renderedLinesCount}A\x1b[J`);
+		renderedLinesCount = 0;
+	}
+}
+
+function render(): void {
+	clearRenderedLines();
+
+	let output = "";
+
+	for (const part of accumulatedResponse) {
+		if (part.title === "thinking" && part.text) {
+			output += "💭 Thinking...\n";
+			output += part.text + "\n";
+		} else if (part.title === "response" && part.text) {
+			output += "💬 Response:\n";
+			output += part.text + "\n";
+		} else if (part.title === "tool") {
+			output += part.text + "\n";
+		} else if (part.title === "files" && part.text) {
+			output += part.text + "\n";
+		}
+	}
+
+	if (output) {
+		process.stdout.write(output);
+		renderedLinesCount = output.split("\n").length - 1;
+	}
 }
 
 // SERVER COMMUNICATION
