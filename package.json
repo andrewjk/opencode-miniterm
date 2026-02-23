@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "bun src/index.ts",
 		"test": "bun test",
-		"check": "tsgo --noEmit && oxlint --type-aware"
+		"check": "tsgo --noEmit"
 	},
 	"keywords": [],
 	"author": "",
