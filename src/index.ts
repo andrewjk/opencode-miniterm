@@ -193,6 +193,7 @@ async function main() {
 					return;
 				}
 				if (key.name === "escape") {
+					clearModelList();
 					process.stdout.write("\x1b[?25h");
 					modelSelectionMode = false;
 					modelList = [];
@@ -204,6 +205,8 @@ async function main() {
 					return;
 				}
 				if (key.name === "return") {
+					modelListLineCount++;
+					clearModelList();
 					process.stdout.write("\x1b[?25h");
 					const selected = modelList[selectedModelIndex];
 					modelSelectionMode = false;
@@ -717,13 +720,17 @@ async function runModel(sessionId: string): Promise<void> {
 	renderModelList();
 }
 
-function renderModelList(): void {
+function clearModelList() {
 	process.stdout.write("\x1b[?25l");
 	if (modelListLineCount > 0) {
 		process.stdout.write(`\x1b[${modelListLineCount}A`);
 	}
 	readline.cursorTo(process.stdout, 0);
 	readline.clearScreenDown(process.stdout);
+}
+
+function renderModelList(): void {
+	clearModelList();
 
 	const grouped = new Map<string, typeof modelList>();
 	for (const model of modelList) {
