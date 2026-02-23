@@ -167,7 +167,7 @@ async function main() {
 						runDetails();
 					} else if (input === "/debug") {
 						runDebug();
-					} else if (input === "/exit") {
+					} else if (input === "/exit" || input === "/quit") {
 						console.log(`\x1b[90mGoodbye!\x1b[0m`);
 						process.exit(0);
 					} else if (input === "/help") {
