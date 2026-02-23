@@ -77,8 +77,10 @@ async function main() {
 	try {
 		const sessionId = await createSession();
 		startEventListener();
-		console.log("Session created. Type your message and press Enter (Ctrl+C to exit):");
-		console.log();
+
+		process.stdout.write(`\x1b[${2}A\x1b[0J`);
+		process.stdout.write("\x1b[0G");
+		console.log("\x1b[90mAsk anything...\x1b[0m\n");
 
 		const rl = readline.createInterface({
 			input: process.stdin,
@@ -540,10 +542,14 @@ async function startOpenCodeServer() {
 
 	let started = false;
 
+	console.log("\n\x1b[90mStarting server...\x1b[0m\n");
+
 	serverProcess.stdout.on("data", (data) => {
 		if (!started) {
+			process.stdout.write(`\x1b[${2}A\x1b[0J`);
+			process.stdout.write("\x1b[0G");
 			started = true;
-			console.log("OpenCode server started");
+			console.log("\x1b[90mServer started, connecting...\x1b[0m\n");
 		}
 	});
 
