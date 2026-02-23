@@ -30,6 +30,8 @@ const SLASH_COMMANDS = [
 	{ command: "/details", description: "Show all parts from the last response" },
 	{ command: "/debug", description: "Show raw events from the last request" },
 	{ command: "/exit", description: "Exit the application" },
+	{ command: "/quit", description: "Exit the application (alias for /exit)" },
+	{ command: "/run", description: "Run a shell command" },
 	{ command: "/help", description: "Show this help message" },
 ];
 
@@ -167,6 +169,24 @@ async function main() {
 						runDetails();
 					} else if (input === "/debug") {
 						runDebug();
+					} else if (input.startsWith("/run ")) {
+						const cmd = input.slice(5);
+						const child = spawn(cmd, [], { shell: true });
+						child.stdout?.on("data", (data) => {
+							process.stdout.write(data.toString());
+						});
+						child.stderr?.on("data", (data) => {
+							process.stderr.write(data.toString());
+						});
+						await new Promise<void>((resolve) => {
+							child.on("close", (code) => {
+								if (code !== 0) {
+									console.log(`\x1b[90mCommand exited with code ${code}\x1b[0m`);
+								}
+								console.log();
+								resolve();
+							});
+						});
 					} else if (input === "/exit" || input === "/quit") {
 						console.log(`\x1b[90mGoodbye!\x1b[0m`);
 						process.exit(0);
