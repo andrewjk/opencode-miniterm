@@ -52,7 +52,7 @@ let modelListLineCount = 0;
 interface AccumulatedPart {
 	title: string;
 	text: string;
-	duration?: number;
+	durationMs?: number;
 }
 
 export interface State {
@@ -381,26 +381,18 @@ function processPart(part: Part, delta: string | undefined): void {
 
 function processStepStart() {
 	thinkingStartTime = Date.now();
-	state.accumulatedResponse.push({ title: "thinking", text: "" });
-
-	render(state);
+	// Don't create empty thinking part - wait for actual reasoning content
 	processing = true;
 }
 
 function processReasoning(part: Part, partKey: string, delta: string | undefined) {
 	if (delta) {
-		//let thinkingPart: AccumulatedPart | null = null;
-		//let i = state.accumulatedResponse.length;
-		//while (i--) {
-		//	if (state.accumulatedResponse[i]!.title === "thinking") {
-		//		thinkingPart = state.accumulatedResponse[i]!;
-		//		break;
-		//	}
-		//}
 		let thinkingPart = findLastPart("thinking");
-		if (thinkingPart) {
-			thinkingPart.text += delta;
+		if (!thinkingPart) {
+			thinkingPart = { title: "thinking", text: "" };
+			state.accumulatedResponse.push(thinkingPart);
 		}
+		thinkingPart.text += delta;
 
 		render(state);
 	}
@@ -411,39 +403,53 @@ function processText(part: Part, partKey: string, delta: string | undefined) {
 		seenParts.add(partKey);
 		seenParts.add(partKey + "_final");
 
-		const thinkingPart = findLastPart("thinking"); // state.accumulatedResponse.find((p) => p.title === "thinking");
+		// TODO: I think this goes somewhere better
+		const thinkingPart = findLastPart("thinking");
 		if (thinkingPart && thinkingStartTime) {
 			const startTime = part.time?.start ?? thinkingStartTime;
 			const endTime = part.time?.end ?? Date.now();
-			thinkingPart.duration = Math.round((endTime - startTime) / 1000);
+			thinkingPart.durationMs = endTime - startTime;
 			thinkingStartTime = null;
 		}
 
-		state.accumulatedResponse.push({ title: "response", text: "" });
+		// Only create response part when we actually have content
+		if (delta) {
+			state.accumulatedResponse.push({ title: "response", text: delta });
+		}
 	}
 
 	if (delta) {
-		const responsePart = findLastPart("response"); // state.accumulatedResponse.find((p) => p.title === "response");
+		const responsePart = findLastPart("response");
 		if (responsePart) {
 			responsePart.text += delta;
 		}
 	} else if (part.text && !seenParts.has(partKey + "_final")) {
 		seenParts.add(partKey + "_final");
 
-		const responsePart = findLastPart("response"); // state.accumulatedResponse.find((p) => p.title === "response");
+		let responsePart = findLastPart("response");
+		if (!responsePart) {
+			// Create response part if it doesn't exist
+			responsePart = { title: "response", text: "" };
+			state.accumulatedResponse.push(responsePart);
+		}
 		if (responsePart) {
 			responsePart.text += part.text + "\n";
 		}
 	}
 
+	// Clean up empty parts before rendering
+	state.accumulatedResponse = state.accumulatedResponse.filter(
+		(part) => part.text && part.text.trim() !== "",
+	);
 	render(state);
 }
 
 function findLastPart(title: string) {
 	let i = state.accumulatedResponse.length;
 	while (i--) {
-		if (state.accumulatedResponse[i].title === title) {
-			return state.accumulatedResponse[i];
+		const part = state.accumulatedResponse[i];
+		if (part?.title === title) {
+			return part;
 		}
 	}
 }
@@ -459,6 +465,7 @@ function processToolUse(part: Part) {
 function processDiff(diff: DiffInfo[] | undefined) {
 	let diffText = "";
 	if (diff && diff.length > 0) {
+		const parts: string[] = [];
 		for (const file of diff) {
 			const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
 			const statusLabel =
@@ -467,10 +474,10 @@ function processDiff(diff: DiffInfo[] | undefined) {
 			const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
 			const stats = [addStr, delStr].filter(Boolean).join(" ");
 			const line = `  \x1b[34m${statusIcon}\x1b[0m ${file.file} (${statusLabel}) ${stats}`;
-			diffText += line + "\n";
+			parts.push(line);
 		}
 
-		state.accumulatedResponse.push({ title: "files", text: diffText.trim() });
+		state.accumulatedResponse.push({ title: "files", text: parts.join("\n") });
 
 		render(state);
 	}
