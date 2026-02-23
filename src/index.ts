@@ -25,10 +25,11 @@ const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
 
 const SLASH_COMMANDS = [
 	{ command: "/init", description: "Analyze project and create/update AGENTS.md" },
-	{ command: "/model", description: "List available models" },
+	{ command: "/models", description: "List available models" },
 	{ command: "/undo", description: "Undo last message" },
-	{ command: "/debug", description: "Show all parts from the most recent request" },
+	{ command: "/exit", description: "Exit the application" },
 	{ command: "/help", description: "Show this help message" },
+	{ command: "/debug", description: "Show all parts from the most recent request" },
 ];
 
 let processing = true;
@@ -157,14 +158,16 @@ async function main() {
 				try {
 					if (input === "/init") {
 						await runInit(sessionId);
-					} else if (input === "/model" || input === "/models") {
+					} else if (input === "/models") {
 						await runModel(sessionId);
 					} else if (input === "/undo") {
 						await runUndo(sessionId);
 					} else if (input === "/debug") {
 						runDebug();
+					} else if (input === "/exit") {
+						console.log(`\x1b[90mGoodbye!\x1b[0m`);
+						process.exit(0);
 					} else if (input === "/help") {
-						console.log("\nAvailable commands:");
 						for (const cmd of SLASH_COMMANDS) {
 							console.log(`  ${cmd.command} - ${cmd.description}`);
 						}
@@ -227,7 +230,7 @@ async function main() {
 						config.providerID = selected.providerID;
 						config.modelID = selected.modelID;
 						saveConfig();
-						console.log(`  ✓ Selected: ${selected.modelName}`);
+						console.log(`  Selected: ${selected.modelName}`);
 						console.log();
 					}
 					process.stdout.write("> ");
@@ -771,8 +774,6 @@ function renderModelList(): void {
 
 	let globalIndex = 0;
 	modelListLineCount = 0;
-	console.log("  Select a model (↑/↓ to navigate, Enter to select, Esc to cancel):\n");
-	modelListLineCount += 2;
 	for (const [providerName, models] of grouped) {
 		console.log(`  \x1b[36;1m${providerName}\x1b[0m`);
 		modelListLineCount++;
