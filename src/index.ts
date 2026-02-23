@@ -162,6 +162,7 @@ async function main() {
 						}
 						console.log();
 					} else {
+						process.stdout.write("\x1b[?25l");
 						console.log("👉 Sending...");
 						console.log();
 						state.renderedLinesCount = 2;
@@ -173,7 +174,9 @@ async function main() {
 				}
 			}
 
-			process.stdout.write("> ");
+			if (!modelSelectionMode) {
+				process.stdout.write("> ");
+			}
 		};
 
 		process.stdin.on("keypress", async (str, key) => {
@@ -190,6 +193,7 @@ async function main() {
 					return;
 				}
 				if (key.name === "escape") {
+					process.stdout.write("\x1b[?25h");
 					modelSelectionMode = false;
 					modelList = [];
 					selectedModelIndex = 0;
@@ -200,7 +204,14 @@ async function main() {
 					return;
 				}
 				if (key.name === "return") {
+					process.stdout.write("\x1b[?25h");
 					const selected = modelList[selectedModelIndex];
+					modelSelectionMode = false;
+					modelList = [];
+					selectedModelIndex = 0;
+					modelListLineCount = 0;
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
 					if (selected) {
 						config.providerID = selected.providerID;
 						config.modelID = selected.modelID;
@@ -208,10 +219,6 @@ async function main() {
 						console.log(`  ✓ Selected: ${selected.modelName}`);
 						console.log();
 					}
-					modelSelectionMode = false;
-					modelList = [];
-					selectedModelIndex = 0;
-					modelListLineCount = 0;
 					process.stdout.write("> ");
 					return;
 				}
@@ -316,6 +323,13 @@ function processEvent(event: ServerEvent): void {
 
 		case "session.diff":
 			processDiff(event.properties.diff);
+			break;
+
+		case "session.idle":
+		case "session.status":
+			if (event.properties.status?.type === "idle") {
+				process.stdout.write("\x1b[?25h");
+			}
 			break;
 
 		default:
@@ -704,6 +718,7 @@ async function runModel(sessionId: string): Promise<void> {
 }
 
 function renderModelList(): void {
+	process.stdout.write("\x1b[?25l");
 	if (modelListLineCount > 0) {
 		process.stdout.write(`\x1b[${modelListLineCount}A`);
 	}
@@ -736,8 +751,8 @@ function renderModelList(): void {
 			globalIndex++;
 		}
 	}
-	console.log();
-	modelListLineCount++;
+	//console.log();
+	//modelListLineCount++;
 }
 
 async function runUndo(sessionId: string): Promise<void> {
