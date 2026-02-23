@@ -8,7 +8,8 @@ export function render(state: State): void {
 
 	let lastIndex = state.accumulatedResponse.length;
 	while (lastIndex--) {
-		if (state.accumulatedResponse[lastIndex].text) {
+		const part = state.accumulatedResponse[lastIndex];
+		if (part?.text) {
 			break;
 		}
 	}
@@ -30,8 +31,7 @@ export function render(state: State): void {
 		} else if (part.title === "tool") {
 			output += part.text + "\n\n";
 		} else if (part.title === "files") {
-			// Skip to the last files part
-			while (state.accumulatedResponse[i + 1].title === "files") {
+			while (state.accumulatedResponse[i + 1]?.title === "files") {
 				i++;
 			}
 			output += part.text + "\n\n";
@@ -46,33 +46,41 @@ export function render(state: State): void {
 
 function clearRenderedLines(state: State): void {
 	if (state.renderedLinesCount > 0) {
-		state.write(`\x1b[${state.renderedLinesCount}A\x1b[J`);
-		//readline.cursorTo(process.stdout, )
-		readline.clearScreenDown(process.stdout);
+		process.stdout.write(`\x1b[${state.renderedLinesCount}A\x1b[0J`);
+		process.stdout.write("\x1b[0G");
 		state.renderedLinesCount = 0;
 	}
 }
 
 function countRenderedLines(state: State, output: string): void {
-	state.renderedLinesCount = 0;
+	const consoleWidth = process.stdout.columns || 80;
+	const strippedOutput = stripAnsiCodes(output);
 
-	output = stripAnsiCodes(output);
-	for (let i = 0; i < output.length; i++) {
-		if (output[i] === "\n") {
-			state.renderedLinesCount++;
+	let lineCount = 0;
+	let col = 0;
+
+	for (let i = 0; i < strippedOutput.length; i++) {
+		const char = strippedOutput[i];
+
+		if (char === "\n") {
+			lineCount++;
+			col = 0;
+		} else if (char === "\r") {
+			continue;
+		} else {
+			col++;
+			if (col >= consoleWidth) {
+				lineCount++;
+				col = 0;
+			}
 		}
 	}
 
-	//const consoleWidth = process.stdout.columns || 80;
-	//let charColumn = 0;
-	//for (let i = 0; i < output.length; i++) {
-	//	if (output[i] === "\n" || charColumn > consoleWidth) {
-	//		state.renderedLinesCount++;
-	//		charColumn = 0;
-	//	} else {
-	//		charColumn++;
-	//	}
-	//}
+	if (col > 0) {
+		lineCount++;
+	}
+
+	state.renderedLinesCount = lineCount;
 }
 
 function stripAnsiCodes(str: string): string {
