@@ -1,6 +1,6 @@
 import type { HeadersInit } from "bun";
-import { spawn } from "child_process";
-import readline from "readline";
+import { spawn } from "node:child_process";
+import readline from "node:readline";
 import { config, loadConfig, saveConfig } from "./config";
 import { render } from "./render";
 import type {
@@ -44,6 +44,7 @@ interface ModelInfo {
 let modelSelectionMode = false;
 let modelList: ModelInfo[] = [];
 let selectedModelIndex = 0;
+let modelListLineCount = 0;
 
 interface AccumulatedPart {
 	title: string;
@@ -88,6 +89,8 @@ async function main() {
 		let inputBuffer = "";
 		let cursorPosition = 0;
 		let completions: string[] = [];
+		let history: string[] = [];
+		let historyIndex = -1;
 		let selectedCompletion = 0;
 		let showCompletions = false;
 		let completionCycling = false;
@@ -103,6 +106,7 @@ async function main() {
 			readline.cursorTo(process.stdout, 0);
 			readline.clearScreenDown(process.stdout);
 			process.stdout.write("> " + inputBuffer);
+			readline.cursorTo(process.stdout, 2 + cursorPosition);
 		};
 
 		const handleTab = (): void => {
@@ -130,9 +134,20 @@ async function main() {
 
 		const acceptInput = async (): Promise<void> => {
 			process.stdout.write("\n");
+
 			const input = inputBuffer.trim();
 
+			inputBuffer = "";
+			cursorPosition = 0;
+			showCompletions = false;
+			completionCycling = false;
+			completions = [];
+
 			if (input) {
+				if (history[history.length - 1] !== input) {
+					history.push(input);
+				}
+				historyIndex = history.length;
 				try {
 					if (input === "/init") {
 						await runInit(sessionId);
@@ -158,11 +173,6 @@ async function main() {
 				}
 			}
 
-			inputBuffer = "";
-			cursorPosition = 0;
-			showCompletions = false;
-			completionCycling = false;
-			completions = [];
 			process.stdout.write("> ");
 		};
 
@@ -183,6 +193,7 @@ async function main() {
 					modelSelectionMode = false;
 					modelList = [];
 					selectedModelIndex = 0;
+					modelListLineCount = 0;
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
 					process.stdout.write("> ");
@@ -193,16 +204,43 @@ async function main() {
 					if (selected) {
 						config.providerID = selected.providerID;
 						config.modelID = selected.modelID;
-						process.env.OPENCODE_MT_MODEL = selected.modelID;
 						saveConfig();
-						console.log(`\n  ✓ Selected: ${selected.modelName}`);
+						console.log(`  ✓ Selected: ${selected.modelName}`);
 						console.log();
 					}
 					modelSelectionMode = false;
 					modelList = [];
 					selectedModelIndex = 0;
+					modelListLineCount = 0;
 					process.stdout.write("> ");
 					return;
+				}
+				return;
+			}
+
+			if (key.name === "up") {
+				if (history.length > 0) {
+					if (historyIndex > 0) {
+						historyIndex--;
+					}
+					inputBuffer = history[historyIndex]!;
+					cursorPosition = inputBuffer.length;
+					renderLine();
+				}
+				return;
+			}
+
+			if (key.name === "down") {
+				if (history.length > 0) {
+					if (historyIndex < history.length - 1) {
+						historyIndex++;
+						inputBuffer = history[historyIndex]!;
+					} else {
+						historyIndex = history.length;
+						inputBuffer = "";
+					}
+					cursorPosition = inputBuffer.length;
+					renderLine();
 				}
 				return;
 			}
@@ -662,26 +700,44 @@ async function runModel(sessionId: string): Promise<void> {
 
 	modelSelectionMode = true;
 
-	console.log("\n  Select a model (↑/↓ to navigate, Enter to select, Esc to cancel):\n");
 	renderModelList();
 }
 
 function renderModelList(): void {
+	if (modelListLineCount > 0) {
+		process.stdout.write(`\x1b[${modelListLineCount}A`);
+	}
 	readline.cursorTo(process.stdout, 0);
 	readline.clearScreenDown(process.stdout);
-	console.log("\n  Select a model (↑/↓ to navigate, Enter to select, Esc to cancel):\n");
 
-	for (let i = 0; i < modelList.length; i++) {
-		const model = modelList[i]!;
-		const isSelected = i === selectedModelIndex;
-		const isActive = model.providerID === config.providerID && model.modelID === config.modelID;
-		const prefix = isSelected ? ">" : "-";
-		const name = isSelected ? `\x1b[33;1m${model.modelName}\x1b[0m` : model.modelName;
-		const provider = isActive ? `\x1b[32;1m(active)\x1b[0m` : model.providerName;
+	const grouped = new Map<string, typeof modelList>();
+	for (const model of modelList) {
+		const list = grouped.get(model.providerName) || [];
+		list.push(model);
+		grouped.set(model.providerName, list);
+	}
 
-		console.log(`  ${prefix} ${name} (${provider})`);
+	let globalIndex = 0;
+	modelListLineCount = 0;
+	console.log("  Select a model (↑/↓ to navigate, Enter to select, Esc to cancel):\n");
+	modelListLineCount += 2;
+	for (const [providerName, models] of grouped) {
+		console.log(`  \x1b[36;1m${providerName}\x1b[0m`);
+		modelListLineCount++;
+		for (const model of models) {
+			const isSelected = globalIndex === selectedModelIndex;
+			const isActive = model.providerID === config.providerID && model.modelID === config.modelID;
+			const prefix = isSelected ? "  >" : "   -";
+			const name = isSelected ? `\x1b[33;1m${model.modelName}\x1b[0m` : model.modelName;
+			const status = isActive ? " (active)" : "";
+
+			console.log(`${prefix} ${name}${status}`);
+			modelListLineCount++;
+			globalIndex++;
+		}
 	}
 	console.log();
+	modelListLineCount++;
 }
 
 async function runUndo(sessionId: string): Promise<void> {

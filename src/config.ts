@@ -11,9 +11,6 @@ export const config: Config = {
 };
 
 export function loadConfig(): void {
-	if (process.env.OPENCODE_MT_MODEL) {
-		config.modelID = process.env.OPENCODE_MT_MODEL;
-	}
 	const content = process.env[ENV_VAR];
 	if (content) {
 		try {
