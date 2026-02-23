@@ -25,6 +25,7 @@ let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
 let statusLineCount = 0;
+let reasoningText = "";
 
 main().catch(console.error);
 
@@ -143,19 +144,19 @@ function processStepStart() {
 	console.log("💭 Thinking...");
 	console.log();
 	statusLineCount = 2;
+	reasoningText = "";
 
 	processing = true;
 }
 
 function processReasoning(part: Part, partKey: string, delta: string | undefined) {
-	if (delta && !seenParts.has(partKey)) {
-		statusLineCount += 1;
-		seenParts.add(partKey);
-	}
-
 	if (delta) {
+		reasoningText += delta;
+		const consoleWidth = process.stdout.columns || 80;
+		statusLineCount = getWrappedLineCount(reasoningText, consoleWidth);
 		printReasoning(delta);
 	} else if (part.time?.end) {
+		reasoningText = "";
 		console.log();
 	}
 }
@@ -209,13 +210,27 @@ function processDiff(diff: DiffInfo[] | undefined) {
 function printReasoning(text: string): void {
 	// Print reasoning in a muted color
 	process.stdout.write(`\x1b[90m${text}\x1b[0m`);
+}
 
-	// Count newlines for clearing once reasoning is done
-	for (let char of text) {
+function getWrappedLineCount(text: string, consoleWidth: number): number {
+	if (!text) return 0;
+	let lines = 1;
+	let currentLineLength = 0;
+
+	for (const char of text) {
 		if (char === "\n") {
-			statusLineCount++;
+			lines++;
+			currentLineLength = 0;
+		} else {
+			currentLineLength++;
+			if (currentLineLength >= consoleWidth) {
+				lines++;
+				currentLineLength = 0;
+			}
 		}
 	}
+
+	return lines;
 }
 
 function clearStatusLine(): void {
