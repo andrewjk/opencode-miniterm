@@ -74,7 +74,7 @@ async function main() {
 								console.log();
 								console.log("👉 Sending...");
 								console.log();
-								renderedLinesCount = 2;
+								renderedLinesCount = 3;
 
 								await sendMessage(sessionId, input);
 							}
@@ -237,7 +237,7 @@ function writeLine(text?: string) {
 
 function clearRenderedLines(): void {
 	if (renderedLinesCount > 0) {
-		process.stdout.write(`\x1b[${renderedLinesCount}A\x1b[J`);
+		process.stdout.write(`\x1b[${renderedLinesCount - 1}A\x1b[J`);
 		renderedLinesCount = 0;
 	}
 }
@@ -268,7 +268,11 @@ function render(): void {
 
 	if (output) {
 		process.stdout.write(output);
-		renderedLinesCount = output.split("\n").length - 1;
+
+		renderedLinesCount = 1;
+		for (let i = 0; i < output.length; i++) {
+			if (output[i] === "\n") renderedLinesCount++;
+		}
 	}
 }
 
