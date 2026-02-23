@@ -115,7 +115,8 @@ async function main() {
 		const renderLine = (): void => {
 			readline.cursorTo(process.stdout, 0);
 			readline.clearScreenDown(process.stdout);
-			process.stdout.write("> " + inputBuffer);
+			writePrompt();
+			process.stdout.write(inputBuffer);
 			readline.cursorTo(process.stdout, 2 + cursorPosition);
 		};
 
@@ -209,7 +210,7 @@ async function main() {
 			}
 
 			if (!modelSelectionMode) {
-				process.stdout.write("> ");
+				writePrompt();
 			}
 		};
 
@@ -235,7 +236,7 @@ async function main() {
 					modelListLineCount = 0;
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
-					process.stdout.write("> ");
+					writePrompt();
 					return;
 				}
 				if (key.name === "return") {
@@ -256,7 +257,7 @@ async function main() {
 						console.log(`  Selected: ${selected.modelName}`);
 						console.log();
 					}
-					process.stdout.write("> ");
+					writePrompt();
 					return;
 				}
 				return;
@@ -303,7 +304,8 @@ async function main() {
 				completionCycling = false;
 				readline.cursorTo(process.stdout, 0);
 				readline.clearScreenDown(process.stdout);
-				process.stdout.write("> " + inputBuffer);
+				writePrompt();
+				process.stdout.write(inputBuffer);
 				return;
 			}
 
@@ -339,7 +341,7 @@ async function main() {
 			renderLine();
 		});
 
-		process.stdout.write("> ");
+		writePrompt();
 	} catch (error: any) {
 		console.error("Error:", error.message);
 		serverProcess.kill();
@@ -497,6 +499,10 @@ function findLastPart(title: string) {
 			return part;
 		}
 	}
+}
+
+function writePrompt() {
+	process.stdout.write("\x1b[1;35m# \x1b[0m");
 }
 
 // SERVER COMMUNICATION
