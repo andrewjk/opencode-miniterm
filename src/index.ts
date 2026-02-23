@@ -217,10 +217,10 @@ function processDiff(diff: DiffInfo[] | undefined) {
 			const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
 			const statusLabel =
 				file.status === "added" ? "added" : file.status === "modified" ? "modified" : "deleted";
-			const addStr = file.additions > 0 ? `+${file.additions}` : "";
-			const delStr = file.deletions > 0 ? `-${file.deletions}` : "";
+			const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
+			const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
 			const stats = [addStr, delStr].filter(Boolean).join(" ");
-			const line = `  ${statusIcon} ${file.file} (${statusLabel}) ${stats}`;
+			const line = `  \x1b[34m${statusIcon}\x1b[0m ${file.file} (${statusLabel}) ${stats}`;
 			diffText += line + "\n";
 		}
 
@@ -249,8 +249,8 @@ function render(): void {
 
 	for (const part of accumulatedResponse) {
 		if (part.title === "thinking" && part.text) {
-			output += "💭 Thinking...\n";
-			output += part.text + "\n";
+			output += "\x1b[37m💭 Thinking...\n";
+			output += part.text + "\n\x1b[0m";
 		} else if (part.title === "response" && part.text) {
 			output += "💬 Response:\n";
 			output += part.text + "\n";
