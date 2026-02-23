@@ -1,22 +1,25 @@
 {
-  "name": "opencode-miniterm",
-  "version": "1.0.0",
-  "description": "An alternative front-end terminal UI for OpenCode",
-  "main": "src/index.ts",
-  "scripts": {
-    "dev": "bun src/index.ts",
-    "test": "bun test"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "private": true,
-  "devDependencies": {
-    "@trivago/prettier-plugin-sort-imports": "^6.0.2",
-    "@types/bun": "latest",
-    "prettier": "^3.8.1"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  }
+	"name": "opencode-miniterm",
+	"version": "1.0.0",
+	"description": "An alternative front-end terminal UI for OpenCode",
+	"main": "src/index.ts",
+	"scripts": {
+		"dev": "bun src/index.ts",
+		"test": "bun test",
+		"check": "tsgo --noEmit && oxlint --type-aware"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"private": true,
+	"devDependencies": {
+		"@trivago/prettier-plugin-sort-imports": "^6.0.2",
+		"@types/bun": "latest",
+		"@typescript/native-preview": "7.0.0-dev.20260122.2",
+		"prettier": "^3.8.1",
+		"typescript": "^5.9.3"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
 }
