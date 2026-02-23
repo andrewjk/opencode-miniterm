@@ -130,6 +130,7 @@ export interface SessionResponse {
 
 export interface ModelResponse {
 	providers: {
+		id: string;
 		name: string;
 		models: {
 			id: string;

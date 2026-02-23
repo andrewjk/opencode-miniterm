@@ -1,6 +1,7 @@
 import type { HeadersInit } from "bun";
 import { spawn } from "child_process";
 import readline from "readline";
+import { config, loadConfig, saveConfig } from "./config";
 import { render } from "./render";
 import type {
 	DiffInfo,
@@ -33,6 +34,17 @@ let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
 
+interface ModelInfo {
+	providerID: string;
+	providerName: string;
+	modelID: string;
+	modelName: string;
+}
+
+let modelSelectionMode = false;
+let modelList: ModelInfo[] = [];
+let selectedModelIndex = 0;
+
 interface AccumulatedPart {
 	title: string;
 	text: string;
@@ -53,6 +65,8 @@ let state: State = {
 main().catch(console.error);
 
 async function main() {
+	loadConfig();
+
 	const serverProcess = await startOpenCodeServer();
 
 	try {
@@ -153,6 +167,46 @@ async function main() {
 		};
 
 		process.stdin.on("keypress", async (str, key) => {
+			if (modelSelectionMode) {
+				if (key.name === "up") {
+					selectedModelIndex =
+						selectedModelIndex > 0 ? selectedModelIndex - 1 : modelList.length - 1;
+					renderModelList();
+					return;
+				}
+				if (key.name === "down") {
+					selectedModelIndex = (selectedModelIndex + 1) % modelList.length;
+					renderModelList();
+					return;
+				}
+				if (key.name === "escape") {
+					modelSelectionMode = false;
+					modelList = [];
+					selectedModelIndex = 0;
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
+					process.stdout.write("> ");
+					return;
+				}
+				if (key.name === "return") {
+					const selected = modelList[selectedModelIndex];
+					if (selected) {
+						config.providerID = selected.providerID;
+						config.modelID = selected.modelID;
+						process.env.OPENCODE_MT_MODEL = selected.modelID;
+						saveConfig();
+						console.log(`\n  ✓ Selected: ${selected.modelName}`);
+						console.log();
+					}
+					modelSelectionMode = false;
+					modelList = [];
+					selectedModelIndex = 0;
+					process.stdout.write("> ");
+					return;
+				}
+				return;
+			}
+
 			if (key.name === "tab" && !completionCycling) {
 				handleTab();
 				return;
@@ -262,8 +316,6 @@ function processPart(part: Part, delta: string | undefined): void {
 }
 
 function processStepStart() {
-	//clearRenderedLines();
-
 	state.accumulatedResponse.push({ title: "thinking", text: "" });
 
 	render(state);
@@ -417,6 +469,7 @@ async function startOpenCodeServer() {
 
 	process.on("SIGINT", () => {
 		console.log("\nShutting down...");
+		saveConfig();
 		serverProcess.kill("SIGINT");
 	});
 
@@ -517,8 +570,8 @@ async function sendMessage(sessionId: string, message: string) {
 			headers: getAuthHeaders(),
 			body: JSON.stringify({
 				model: {
-					modelID: "big-pickle",
-					providerID: "opencode",
+					providerID: config.providerID,
+					modelID: config.modelID,
 				},
 				parts: [{ type: "text", text: message }],
 			}),
@@ -573,7 +626,6 @@ async function runInit(sessionId: string): Promise<void> {
 }
 
 async function runModel(sessionId: string): Promise<void> {
-	console.log("Fetching available models...");
 	const response = await fetchWithTimeout(
 		`${SERVER_URL}/config/providers`,
 		{
@@ -588,15 +640,46 @@ async function runModel(sessionId: string): Promise<void> {
 		throw new Error(`Failed to fetch models (${response.status}): ${error}`);
 	}
 
-	const config = (await response.json()) as ModelResponse;
-	console.log("\nAvailable models:");
+	const modelResponse = (await response.json()) as ModelResponse;
 
-	for (const provider of config.providers || []) {
-		console.log(`\n${provider.name}:`);
+	modelList = [];
+	for (const provider of modelResponse.providers || []) {
 		const models = Object.values(provider.models || {});
 		for (const model of models) {
-			console.log(`  - ${model.id}: ${model.name || ""}`);
+			modelList.push({
+				providerID: provider.id,
+				providerName: provider.name,
+				modelID: model.id,
+				modelName: model.name || model.id,
+			});
 		}
+	}
+
+	selectedModelIndex = modelList.findIndex(
+		(m) => m.providerID === config.providerID && m.modelID === config.modelID,
+	);
+	if (selectedModelIndex === -1) selectedModelIndex = 0;
+
+	modelSelectionMode = true;
+
+	console.log("\n  Select a model (↑/↓ to navigate, Enter to select, Esc to cancel):\n");
+	renderModelList();
+}
+
+function renderModelList(): void {
+	readline.cursorTo(process.stdout, 0);
+	readline.clearScreenDown(process.stdout);
+	console.log("\n  Select a model (↑/↓ to navigate, Enter to select, Esc to cancel):\n");
+
+	for (let i = 0; i < modelList.length; i++) {
+		const model = modelList[i]!;
+		const isSelected = i === selectedModelIndex;
+		const isActive = model.providerID === config.providerID && model.modelID === config.modelID;
+		const prefix = isSelected ? ">" : "-";
+		const name = isSelected ? `\x1b[33;1m${model.modelName}\x1b[0m` : model.modelName;
+		const provider = isActive ? `\x1b[32;1m(active)\x1b[0m` : model.providerName;
+
+		console.log(`  ${prefix} ${name} (${provider})`);
 	}
 	console.log();
 }
