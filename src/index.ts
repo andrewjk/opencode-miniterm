@@ -73,6 +73,39 @@ let state: State = {
 
 main().catch(console.error);
 
+async function getModelDisplay(): Promise<string> {
+	try {
+		const response = await fetchWithTimeout(
+			`${SERVER_URL}/config/providers`,
+			{
+				method: "GET",
+				headers: getAuthHeaders(),
+			},
+			10000,
+		);
+
+		if (!response.ok) {
+			return "";
+		}
+
+		const modelResponse = (await response.json()) as ModelResponse;
+
+		for (const provider of modelResponse.providers || []) {
+			const models = Object.values(provider.models || {});
+			for (const model of models) {
+				if (provider.id === config.providerID && model.id === config.modelID) {
+					const modelName = model.name || model.id;
+					return `\x1b[97m${modelName}\x1b[0m \x1b[90m(${provider.name})\x1b[0m`;
+				}
+			}
+		}
+	} catch (error) {
+		return "";
+	}
+
+	return "";
+}
+
 async function main() {
 	loadConfig();
 
@@ -82,8 +115,12 @@ async function main() {
 		const sessionId = await createSession();
 		startEventListener();
 
+		const modelDisplay = await getModelDisplay();
+
 		process.stdout.write(`\x1b[${2}A\x1b[0J`);
 		process.stdout.write("\x1b[0G");
+		console.log(modelDisplay);
+		console.log();
 		console.log("\x1b[90mAsk anything...\x1b[0m\n");
 
 		const rl = readline.createInterface({
@@ -254,7 +291,9 @@ async function main() {
 						config.providerID = selected.providerID;
 						config.modelID = selected.modelID;
 						saveConfig();
-						console.log(`  Selected: ${selected.modelName}`);
+						console.log(
+							`\x1b[97m${selected.modelName}\x1b[0m \x1b[90m(${selected.providerName})\x1b[0m`,
+						);
 						console.log();
 					}
 					writePrompt();
