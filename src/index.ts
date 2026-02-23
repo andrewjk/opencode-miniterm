@@ -27,6 +27,13 @@ let lastEventTime = Date.now();
 let statusLineCount = 0;
 let reasoningText = "";
 
+interface AccumulatedPart {
+	title: string;
+	text: string;
+}
+
+let accumulatedResponse: AccumulatedPart[] = [];
+
 main().catch(console.error);
 
 async function main() {
@@ -141,10 +148,12 @@ function processPart(part: Part, delta: string | undefined): void {
 function processStepStart() {
 	clearStatusLine();
 
-	console.log("💭 Thinking...");
-	console.log();
+	writeLine("💭 Thinking...");
+	writeLine();
 	statusLineCount = 2;
 	reasoningText = "";
+
+	accumulatedResponse.push({ title: "thinking", text: "" });
 
 	processing = true;
 }
@@ -155,61 +164,86 @@ function processReasoning(part: Part, partKey: string, delta: string | undefined
 		const consoleWidth = process.stdout.columns || 80;
 		statusLineCount = getWrappedLineCount(reasoningText, consoleWidth);
 		printReasoning(delta);
+
+		const thinkingPart = accumulatedResponse.find((p) => p.title === "thinking");
+		if (thinkingPart) {
+			thinkingPart.text += delta;
+		}
 	} else if (part.time?.end) {
 		reasoningText = "";
-		console.log();
+		writeLine();
 	}
 }
 
 function processText(part: Part, partKey: string, delta: string | undefined) {
 	if (delta && !seenParts.has(partKey)) {
 		clearStatusLine();
-		console.log("💬 Response:");
-		console.log();
+		writeLine("💬 Response:");
+		writeLine();
 		statusLineCount = 2;
 
 		seenParts.add(partKey);
 		seenParts.add(partKey + "_final");
+
+		accumulatedResponse.push({ title: "response", text: "" });
 	}
 
 	if (delta) {
 		process.stdout.write(delta);
+
+		const responsePart = accumulatedResponse.find((p) => p.title === "response");
+		if (responsePart) {
+			responsePart.text += delta;
+		}
 	} else if (part.text && !seenParts.has(partKey + "_final")) {
-		console.log(part.text);
+		writeLine(part.text);
 		seenParts.add(partKey + "_final");
+
+		const responsePart = accumulatedResponse.find((p) => p.title === "response");
+		if (responsePart) {
+			responsePart.text += part.text + "\n";
+		}
 	} else if (part.text) {
-		console.log();
+		writeLine();
 	}
 }
 
 function processToolUse(part: Part) {
 	clearStatusLine();
-	console.log(`🔧 Using tool: ${part.name || "unknown"}`);
-	console.log();
+	const toolText = `🔧 Using tool: ${part.name || "unknown"}`;
+	writeLine(toolText);
+	writeLine();
 	statusLineCount = 2;
+
+	accumulatedResponse.push({ title: "tool", text: toolText });
 }
 
 function processDiff(diff: DiffInfo[] | undefined) {
 	clearStatusLine();
 
+	let diffText = "";
 	if (diff && diff.length > 0) {
 		for (const file of diff) {
 			const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
 			const statusLabel =
 				file.status === "added" ? "added" : file.status === "modified" ? "modified" : "deleted";
-			const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
-			const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
+			const addStr = file.additions > 0 ? `+${file.additions}` : "";
+			const delStr = file.deletions > 0 ? `-${file.deletions}` : "";
 			const stats = [addStr, delStr].filter(Boolean).join(" ");
-			console.log(`  ${statusIcon} ${file.file} (${statusLabel}) ${stats}`);
+			const line = `  ${statusIcon} ${file.file} (${statusLabel}) ${stats}`;
+			writeLine(line);
+			diffText += line + "\n";
 		}
-		console.log();
+		writeLine();
 		statusLineCount = diff.length + 1;
+
+		accumulatedResponse.push({ title: "files", text: diffText.trim() });
 	}
 }
 
 function printReasoning(text: string): void {
 	// Print reasoning in a muted color
-	process.stdout.write(`\x1b[90m${text}\x1b[0m`);
+	write(`\x1b[90m${text}\x1b[0m`);
 }
 
 function getWrappedLineCount(text: string, consoleWidth: number): number {
@@ -245,7 +279,8 @@ function write(text: string) {
 	process.stdout.write(text);
 }
 
-function writeLine(text: string) {
+function writeLine(text?: string) {
+	text ??= "";
 	process.stdout.write(text + "\n");
 }
 
@@ -416,6 +451,7 @@ async function createSession(): Promise<string> {
 async function sendMessage(sessionId: string, message: string) {
 	processing = false;
 	seenParts.clear();
+	accumulatedResponse = [];
 
 	const response = await fetchWithTimeout(
 		`${SERVER_URL}/session/${sessionId}/message`,
@@ -440,6 +476,9 @@ async function sendMessage(sessionId: string, message: string) {
 	}
 
 	console.log();
+	console.log("--- Accumulated Response ---");
+	console.log(JSON.stringify(accumulatedResponse, null, 2));
+	console.log("----------------------------");
 }
 
 function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
