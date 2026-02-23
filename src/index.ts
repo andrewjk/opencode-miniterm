@@ -1,6 +1,7 @@
 import type { HeadersInit } from "bun";
 import { spawn } from "child_process";
 import readline from "readline";
+import { render } from "./render";
 import type {
 	DiffInfo,
 	EventProperties,
@@ -31,15 +32,23 @@ const SLASH_COMMANDS = [
 let seenParts = new Set();
 let processing = true;
 let lastEventTime = Date.now();
-let renderedLinesCount = 0;
-let reasoningText = "";
 
 interface AccumulatedPart {
 	title: string;
 	text: string;
 }
 
-let accumulatedResponse: AccumulatedPart[] = [];
+export interface State {
+	renderedLinesCount: number;
+	accumulatedResponse: AccumulatedPart[];
+	write: (text: string) => void;
+}
+
+let state: State = {
+	renderedLinesCount: 0,
+	accumulatedResponse: [],
+	write: (text) => process.stdout.write(text),
+};
 
 main().catch(console.error);
 
@@ -136,7 +145,7 @@ async function main() {
 					} else {
 						console.log("👉 Sending...");
 						console.log();
-						renderedLinesCount = 3;
+						state.renderedLinesCount = 2;
 
 						await sendMessage(sessionId, input);
 					}
@@ -276,24 +285,21 @@ function processPart(part: Part, delta: string | undefined): void {
 }
 
 function processStepStart() {
-	clearRenderedLines();
+	//clearRenderedLines();
 
-	reasoningText = "";
-	accumulatedResponse.push({ title: "thinking", text: "" });
+	state.accumulatedResponse.push({ title: "thinking", text: "" });
 
-	render();
+	render(state);
 	processing = true;
 }
 
 function processReasoning(part: Part, partKey: string, delta: string | undefined) {
 	if (delta) {
-		reasoningText += delta;
-
 		let thinkingPart: AccumulatedPart | null = null;
-		let i = accumulatedResponse.length;
+		let i = state.accumulatedResponse.length;
 		while (i--) {
-			if (accumulatedResponse[i]!.title === "thinking") {
-				thinkingPart = accumulatedResponse[i]!;
+			if (state.accumulatedResponse[i]!.title === "thinking") {
+				thinkingPart = state.accumulatedResponse[i]!;
 				break;
 			}
 		}
@@ -301,9 +307,7 @@ function processReasoning(part: Part, partKey: string, delta: string | undefined
 			thinkingPart.text += delta;
 		}
 
-		render();
-	} else if (part.time?.end) {
-		reasoningText = "";
+		render(state);
 	}
 }
 
@@ -312,32 +316,32 @@ function processText(part: Part, partKey: string, delta: string | undefined) {
 		seenParts.add(partKey);
 		seenParts.add(partKey + "_final");
 
-		accumulatedResponse.push({ title: "response", text: "" });
+		state.accumulatedResponse.push({ title: "response", text: "" });
 	}
 
 	if (delta) {
-		const responsePart = accumulatedResponse.find((p) => p.title === "response");
+		const responsePart = state.accumulatedResponse.find((p) => p.title === "response");
 		if (responsePart) {
 			responsePart.text += delta;
 		}
 	} else if (part.text && !seenParts.has(partKey + "_final")) {
 		seenParts.add(partKey + "_final");
 
-		const responsePart = accumulatedResponse.find((p) => p.title === "response");
+		const responsePart = state.accumulatedResponse.find((p) => p.title === "response");
 		if (responsePart) {
 			responsePart.text += part.text + "\n";
 		}
 	}
 
-	render();
+	render(state);
 }
 
 function processToolUse(part: Part) {
 	const toolText = `🔧 Using tool: ${part.name || "unknown"}`;
 
-	accumulatedResponse.push({ title: "tool", text: toolText });
+	state.accumulatedResponse.push({ title: "tool", text: toolText });
 
-	render();
+	render(state);
 }
 
 function processDiff(diff: DiffInfo[] | undefined) {
@@ -354,55 +358,9 @@ function processDiff(diff: DiffInfo[] | undefined) {
 			diffText += line + "\n";
 		}
 
-		accumulatedResponse.push({ title: "files", text: diffText.trim() });
+		state.accumulatedResponse.push({ title: "files", text: diffText.trim() });
 
-		render();
-	}
-}
-
-function writeLine(text?: string) {
-	text ??= "";
-	process.stdout.write(text + "\n");
-}
-
-function clearRenderedLines(): void {
-	if (renderedLinesCount > 0) {
-		process.stdout.write(`\x1b[${renderedLinesCount - 1}A\x1b[J`);
-		renderedLinesCount = 0;
-	}
-}
-
-function render(): void {
-	clearRenderedLines();
-
-	let output = "";
-
-	for (let i = 0; i < accumulatedResponse.length; i++) {
-		const part = accumulatedResponse[i];
-		if (!part || !part.text) continue;
-
-		if (part.title === "thinking" && i === accumulatedResponse.length - 1) {
-			output += "💭 Thinking...\n\n";
-			output += `\x1b[90m${part.text}\x1b[0m`;
-		} else if (part.title === "response") {
-			output += "💬 Response:\n\n";
-			output += part.text + "\n";
-		} else if (part.title === "tool") {
-			output += part.text + "\n\n";
-		} else if (part.title === "files") {
-			output += part.text + "\n\n";
-		}
-
-		output += "\n";
-	}
-
-	if (output) {
-		process.stdout.write(output);
-
-		renderedLinesCount = 1;
-		for (let i = 0; i < output.length; i++) {
-			if (output[i] === "\n") renderedLinesCount++;
-		}
+		render(state);
 	}
 }
 
@@ -573,7 +531,7 @@ async function createSession(): Promise<string> {
 async function sendMessage(sessionId: string, message: string) {
 	processing = false;
 	seenParts.clear();
-	accumulatedResponse = [];
+	state.accumulatedResponse = [];
 
 	const response = await fetchWithTimeout(
 		`${SERVER_URL}/session/${sessionId}/message`,
