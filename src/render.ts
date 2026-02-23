@@ -1,4 +1,3 @@
-import readline from "node:readline";
 import { type State } from ".";
 
 export function render(state: State): void {
@@ -16,16 +15,12 @@ export function render(state: State): void {
 
 	for (let i = 0; i < state.accumulatedResponse.length; i++) {
 		const part = state.accumulatedResponse[i];
-		if (!part || !part.text) continue;
+		if (!part.text.trim()) continue;
 
 		if (part.title === "thinking") {
-			// Only if it's the last part (i.e. disappear thinking as soon as
-			// there's a response etc)
 			if (i === lastIndex) {
 				output += "💭 Thinking...\n\n";
 				output += `\x1b[90m${part.text}\x1b[0m\n\n`;
-			} else if (part.duration !== undefined) {
-				output += `💭 Thought for ${part.duration}s\n\n`;
 			}
 		} else if (part.title === "response") {
 			output += "💬 Response:\n\n";
