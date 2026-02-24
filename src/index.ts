@@ -22,6 +22,7 @@ const SLASH_COMMANDS = [
 	{ command: "/undo", description: "Undo changes for the last request" },
 	{ command: "/details", description: "Show all parts from the last request" },
 	{ command: "/debug", description: "Show raw events from the last request" },
+	{ command: "/kill", description: "Abort a session (e.g. /kill ses_123)" },
 	{ command: "/exit", description: "Exit the application (you can also /quit)" },
 	//{ command: "/quit", description: "Exit the application (alias for /exit)" },
 	{ command: "/run", description: "Run a shell command (e.g. `/run git status`)" },
@@ -333,6 +334,9 @@ async function main() {
 						runDetails();
 					} else if (input === "/debug") {
 						runDebug();
+					} else if (input.startsWith("/kill ")) {
+						const sessionIdToKill = input.slice(6).trim();
+						await runKill(sessionIdToKill);
 					} else if (input.startsWith("/run ")) {
 						const cmd = input.slice(5);
 						const child = spawn(cmd, [], { shell: true });
@@ -1468,8 +1472,28 @@ function runDebug(): void {
 	console.log();
 }
 
+async function runKill(sessionIdToKill: string): Promise<void> {
+	if (!sessionIdToKill) {
+		console.log("Usage: /kill <session_id>");
+		return;
+	}
+
+	const result = await client.session.abort({
+		path: { id: sessionIdToKill },
+	});
+
+	if (result.error) {
+		throw new Error(
+			`Failed to abort session (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
+	}
+
+	console.log(`Session aborted successfully.`);
+	console.log();
+}
+
 function stripLongStrings(target: Record<PropertyKey, any>) {
-	for (let prop in target) {
+	for (const prop in target) {
 		if (prop !== "text" && prop !== "delta") {
 			let value = target[prop];
 			if (typeof value === "string") {
