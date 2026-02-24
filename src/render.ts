@@ -13,7 +13,7 @@ export function render(state: State, details = false): void {
 	// Only show the last (i.e. active) tool use
 	// Only show the last files part between parts
 	let foundPart = false;
-	let foundPartBetweenFiles = false;
+	let foundPartBetweenFiles = true;
 	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
 		const part = state.accumulatedResponse[i]!;
 		if (details) {

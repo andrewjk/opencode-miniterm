@@ -28,9 +28,33 @@ const SLASH_COMMANDS = [
 	{ command: "/help", description: "Show this help message" },
 ];
 
+const ANIMATION_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"];
+
+function startAnimation(): void {
+	if (animationInterval) return;
+
+	process.stdout.write("\n\x1b[?25l");
+	state.renderedLinesCount = 1;
+
+	let index = 0;
+	animationInterval = setInterval(() => {
+		process.stdout.write("\r\x1b[1;35m");
+		process.stdout.write(`${ANIMATION_CHARS[index]} \x1b[0m`);
+		index = (index + 1) % ANIMATION_CHARS.length;
+	}, 100);
+}
+
+function stopAnimation(): void {
+	if (animationInterval) {
+		clearInterval(animationInterval);
+		animationInterval = null;
+	}
+}
+
 let processing = true;
 let allEvents: Event[] = [];
 let retryInterval: ReturnType<typeof setInterval> | null = null;
+let animationInterval: ReturnType<typeof setInterval> | null = null;
 
 interface ModelInfo {
 	providerID: string;
@@ -341,10 +365,12 @@ async function main() {
 						console.log("🙏 Sending...");
 						console.log();
 						state.renderedLinesCount = 2;
+						startAnimation();
 
 						await sendMessage(sessionId, input);
 					}
 				} catch (error: any) {
+					stopAnimation();
 					console.error("Error:", error.message);
 				}
 			}
@@ -737,6 +763,7 @@ function processEvent(event: Event): void {
 		case "session.idle":
 		case "session.status":
 			if (event.type === "session.status" && event.properties.status.type === "idle") {
+				stopAnimation();
 				process.stdout.write("\x1b[?25h");
 				if (retryInterval) {
 					clearInterval(retryInterval);
@@ -807,10 +834,12 @@ function processPart(part: Part): void {
 }
 
 function processStepStart() {
+	stopAnimation();
 	processing = true;
 }
 
 function processReasoning(part: Part) {
+	stopAnimation();
 	processing = true;
 	let thinkingPart = findLastPart(part.id);
 	if (!thinkingPart) {
@@ -825,6 +854,7 @@ function processReasoning(part: Part) {
 }
 
 function processText(part: Part) {
+	stopAnimation();
 	let responsePart = findLastPart(part.id);
 	if (!responsePart) {
 		responsePart = { key: part.id, title: "response", text: (part as any).text || "" };
@@ -888,6 +918,7 @@ function findLastPart(title: string) {
 }
 
 function writePrompt() {
+	stopAnimation();
 	process.stdout.write("\x1b[?25h");
 	process.stdout.write("\x1b[1;35m# \x1b[0m");
 }
