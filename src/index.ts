@@ -63,6 +63,7 @@ let sessionSelectionMode = false;
 let sessionList: SessionInfo[] = [];
 let selectedSessionIndex = 0;
 let sessionListLineCount = 0;
+let sessionListOffset = 0;
 
 interface AccumulatedPart {
 	key: string;
@@ -283,13 +284,30 @@ async function main() {
 		process.stdin.on("keypress", async (str, key) => {
 			if (sessionSelectionMode) {
 				if (key.name === "up") {
-					selectedSessionIndex =
-						selectedSessionIndex > 0 ? selectedSessionIndex - 1 : sessionList.length - 1;
+					if (selectedSessionIndex === 0) {
+						selectedSessionIndex = sessionList.length - 1;
+					} else {
+						selectedSessionIndex--;
+					}
+					if (selectedSessionIndex < sessionListOffset && sessionListOffset > 0) {
+						sessionListOffset -= 10;
+						if (sessionListOffset < 0) sessionListOffset = 0;
+					}
 					renderSessionList();
 					return;
 				}
 				if (key.name === "down") {
-					selectedSessionIndex = (selectedSessionIndex + 1) % sessionList.length;
+					if (selectedSessionIndex === sessionList.length - 1) {
+						selectedSessionIndex = 0;
+					} else {
+						selectedSessionIndex++;
+					}
+					if (
+						selectedSessionIndex >= sessionListOffset + 10 &&
+						sessionListOffset + 10 < sessionList.length
+					) {
+						sessionListOffset += 10;
+					}
 					renderSessionList();
 					return;
 				}
@@ -299,6 +317,7 @@ async function main() {
 					sessionSelectionMode = false;
 					sessionList = [];
 					selectedSessionIndex = 0;
+					sessionListOffset = 0;
 					sessionListLineCount = 0;
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
@@ -313,6 +332,7 @@ async function main() {
 					sessionSelectionMode = false;
 					sessionList = [];
 					selectedSessionIndex = 0;
+					sessionListOffset = 0;
 					sessionListLineCount = 0;
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
@@ -679,6 +699,7 @@ function findLastPart(title: string) {
 }
 
 function writePrompt() {
+	process.stdout.write("\x1b[?25h");
 	process.stdout.write("\x1b[1;35m# \x1b[0m");
 }
 
@@ -882,6 +903,7 @@ function renderAgentList(): void {
 	agentListLineCount = 0;
 	console.log("  \x1b[36;1mAvailable Agents\x1b[0m");
 	agentListLineCount++;
+
 	for (const agent of agentList) {
 		const globalIndex = agentList.indexOf(agent);
 		const isSelected = globalIndex === selectedAgentIndex;
@@ -1084,6 +1106,9 @@ async function runSessions(): Promise<void> {
 	selectedSessionIndex = sessionList.findIndex((s) => s.id === config.sessionID);
 	if (selectedSessionIndex === -1) selectedSessionIndex = 0;
 
+	sessionListOffset = Math.floor(selectedSessionIndex / 10) * 10;
+	if (sessionListOffset < 0) sessionListOffset = 0;
+
 	sessionSelectionMode = true;
 
 	renderSessionList();
@@ -1105,7 +1130,7 @@ function renderSessionList(): void {
 	console.log("  \x1b[36;1mAvailable Sessions\x1b[0m");
 	sessionListLineCount++;
 
-	const recentSessions = sessionList.slice(0, 10);
+	const recentSessions = sessionList.slice(sessionListOffset, sessionListOffset + 10);
 	const groupedByDate = recentSessions.reduce(
 		(acc, session) => {
 			const date = new Date(session.updatedAt).toLocaleDateString();
