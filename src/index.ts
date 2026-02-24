@@ -18,6 +18,7 @@ const SLASH_COMMANDS = [
 	{ command: "/agents", description: "List and select available agents" },
 	{ command: "/models", description: "List and select available models" },
 	{ command: "/sessions", description: "List and select sessions" },
+	{ command: "/new", description: "Create a new session" },
 	{ command: "/undo", description: "Undo changes for the last request" },
 	{ command: "/details", description: "Show all parts from the last request" },
 	{ command: "/debug", description: "Show raw events from the last request" },
@@ -41,6 +42,8 @@ let modelSelectionMode = false;
 let modelList: ModelInfo[] = [];
 let selectedModelIndex = 0;
 let modelListLineCount = 0;
+let modelSearchString = "";
+let modelFilteredIndices: number[] = [];
 
 interface AgentInfo {
 	id: string;
@@ -51,6 +54,8 @@ let agentSelectionMode = false;
 let agentList: AgentInfo[] = [];
 let selectedAgentIndex = 0;
 let agentListLineCount = 0;
+let agentSearchString = "";
+let agentFilteredIndices: number[] = [];
 
 interface SessionInfo {
 	id: string;
@@ -64,6 +69,8 @@ let sessionList: SessionInfo[] = [];
 let selectedSessionIndex = 0;
 let sessionListLineCount = 0;
 let sessionListOffset = 0;
+let sessionSearchString = "";
+let sessionFilteredIndices: number[] = [];
 
 interface AccumulatedPart {
 	key: string;
@@ -85,6 +92,66 @@ let state: State = {
 	write: (text) => process.stdout.write(text),
 };
 
+function updateAgentFilter(): void {
+	if (!agentSearchString) {
+		agentFilteredIndices = agentList.map((_, i) => i);
+	} else {
+		const search = agentSearchString.toLowerCase();
+		agentFilteredIndices = agentList
+			.map((agent, i) => ({ agent, index: i }))
+			.filter(({ agent }) => agent.name.toLowerCase().includes(search))
+			.map(({ index }) => index);
+	}
+	if (agentFilteredIndices.length > 0) {
+		selectedAgentIndex = agentFilteredIndices.indexOf(
+			agentList.findIndex((a) => a.id === config.agentID),
+		);
+		if (selectedAgentIndex === -1) selectedAgentIndex = 0;
+	}
+}
+
+function updateModelFilter(): void {
+	if (!modelSearchString) {
+		modelFilteredIndices = modelList.map((_, i) => i);
+	} else {
+		const search = modelSearchString.toLowerCase();
+		modelFilteredIndices = modelList
+			.map((model, i) => ({ model, index: i }))
+			.filter(({ model }) => model.modelName.toLowerCase().includes(search))
+			.map(({ index }) => index);
+	}
+	if (modelFilteredIndices.length > 0) {
+		selectedModelIndex = modelFilteredIndices.indexOf(
+			modelList.findIndex(
+				(m) => m.providerID === config.providerID && m.modelID === config.modelID,
+			),
+		);
+		if (selectedModelIndex === -1) selectedModelIndex = 0;
+	}
+}
+
+function updateSessionFilter(): void {
+	if (!sessionSearchString) {
+		sessionFilteredIndices = sessionList.map((_, i) => i);
+	} else {
+		const search = sessionSearchString.toLowerCase();
+		sessionFilteredIndices = sessionList
+			.map((session, i) => ({ session, index: i }))
+			.filter(
+				({ session }) =>
+					session.title?.toLowerCase().includes(search) ||
+					session.id.toLowerCase().includes(search),
+			)
+			.map(({ index }) => index);
+	}
+	if (sessionFilteredIndices.length > 0) {
+		selectedSessionIndex = sessionFilteredIndices.indexOf(
+			sessionList.findIndex((s) => s.id === config.sessionID),
+		);
+		if (selectedSessionIndex === -1) selectedSessionIndex = 0;
+	}
+}
+
 main().catch(console.error);
 
 async function main() {
@@ -102,14 +169,17 @@ async function main() {
 	});
 
 	try {
-		let sessionId = config.sessionID;
+		let sessionId: string;
 		let isNewSession = false;
 
-		if (!sessionId || !(await validateSession(sessionId))) {
+		const initialSessionId = config.sessionID;
+		if (!initialSessionId || !(await validateSession(initialSessionId))) {
 			sessionId = await createSession();
 			isNewSession = true;
 			config.sessionID = sessionId;
 			saveConfig();
+		} else {
+			sessionId = initialSessionId;
 		}
 
 		startEventListener();
@@ -231,6 +301,8 @@ async function main() {
 						await runModel();
 					} else if (input === "/sessions") {
 						await runSessions();
+					} else if (input === "/new") {
+						sessionId = await runNew();
 					} else if (input === "/undo") {
 						await runUndo(sessionId);
 					} else if (input === "/details") {
@@ -265,7 +337,7 @@ async function main() {
 						console.log();
 					} else {
 						process.stdout.write("\x1b[?25l");
-						console.log("👉 Sending...");
+						console.log("🙏 Sending...");
 						console.log();
 						state.renderedLinesCount = 2;
 
@@ -288,11 +360,16 @@ async function main() {
 			if (sessionSelectionMode) {
 				if (key.name === "up") {
 					if (selectedSessionIndex === 0) {
-						selectedSessionIndex = sessionList.length - 1;
+						selectedSessionIndex = sessionFilteredIndices.length - 1;
 					} else {
 						selectedSessionIndex--;
 					}
-					if (selectedSessionIndex < sessionListOffset && sessionListOffset > 0) {
+					const currentIndex = sessionFilteredIndices[selectedSessionIndex];
+					if (
+						currentIndex !== undefined &&
+						currentIndex < sessionListOffset &&
+						sessionListOffset > 0
+					) {
 						sessionListOffset -= 10;
 						if (sessionListOffset < 0) sessionListOffset = 0;
 					}
@@ -300,13 +377,15 @@ async function main() {
 					return;
 				}
 				if (key.name === "down") {
-					if (selectedSessionIndex === sessionList.length - 1) {
+					if (selectedSessionIndex === sessionFilteredIndices.length - 1) {
 						selectedSessionIndex = 0;
 					} else {
 						selectedSessionIndex++;
 					}
+					const currentIndex = sessionFilteredIndices[selectedSessionIndex];
 					if (
-						selectedSessionIndex >= sessionListOffset + 10 &&
+						currentIndex !== undefined &&
+						currentIndex >= sessionListOffset + 10 &&
 						sessionListOffset + 10 < sessionList.length
 					) {
 						sessionListOffset += 10;
@@ -322,6 +401,8 @@ async function main() {
 					selectedSessionIndex = 0;
 					sessionListOffset = 0;
 					sessionListLineCount = 0;
+					sessionSearchString = "";
+					sessionFilteredIndices = [];
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
 					writePrompt();
@@ -331,12 +412,15 @@ async function main() {
 					sessionListLineCount++;
 					clearSessionList();
 					process.stdout.write("\x1b[?25h");
-					const selected = sessionList[selectedSessionIndex];
+					const selectedIndex = sessionFilteredIndices[selectedSessionIndex];
+					const selected = selectedIndex !== undefined ? sessionList[selectedIndex] : undefined;
 					sessionSelectionMode = false;
 					sessionList = [];
 					selectedSessionIndex = 0;
 					sessionListOffset = 0;
 					sessionListLineCount = 0;
+					sessionSearchString = "";
+					sessionFilteredIndices = [];
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
 					if (selected) {
@@ -351,18 +435,39 @@ async function main() {
 					writePrompt();
 					return;
 				}
+				if (key.name === "backspace") {
+					sessionSearchString = sessionSearchString.slice(0, -1);
+					updateSessionFilter();
+					selectedSessionIndex = 0;
+					renderSessionList();
+					return;
+				}
+				if (str && str.length === 1) {
+					sessionSearchString += str;
+					updateSessionFilter();
+					selectedSessionIndex = 0;
+					renderSessionList();
+					return;
+				}
 				return;
 			}
 
 			if (agentSelectionMode) {
 				if (key.name === "up") {
-					selectedAgentIndex =
-						selectedAgentIndex > 0 ? selectedAgentIndex - 1 : agentList.length - 1;
+					if (selectedAgentIndex === 0) {
+						selectedAgentIndex = agentFilteredIndices.length - 1;
+					} else {
+						selectedAgentIndex--;
+					}
 					renderAgentList();
 					return;
 				}
 				if (key.name === "down") {
-					selectedAgentIndex = (selectedAgentIndex + 1) % agentList.length;
+					if (selectedAgentIndex === agentFilteredIndices.length - 1) {
+						selectedAgentIndex = 0;
+					} else {
+						selectedAgentIndex++;
+					}
 					renderAgentList();
 					return;
 				}
@@ -373,6 +478,8 @@ async function main() {
 					agentList = [];
 					selectedAgentIndex = 0;
 					agentListLineCount = 0;
+					agentSearchString = "";
+					agentFilteredIndices = [];
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
 					writePrompt();
@@ -382,11 +489,14 @@ async function main() {
 					agentListLineCount++;
 					clearAgentList();
 					process.stdout.write("\x1b[?25h");
-					const selected = agentList[selectedAgentIndex];
+					const selectedIndex = agentFilteredIndices[selectedAgentIndex];
+					const selected = selectedIndex !== undefined ? agentList[selectedIndex] : undefined;
 					agentSelectionMode = false;
 					agentList = [];
 					selectedAgentIndex = 0;
 					agentListLineCount = 0;
+					agentSearchString = "";
+					agentFilteredIndices = [];
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
 					if (selected) {
@@ -399,18 +509,39 @@ async function main() {
 					writePrompt();
 					return;
 				}
+				if (key.name === "backspace") {
+					agentSearchString = agentSearchString.slice(0, -1);
+					updateAgentFilter();
+					selectedAgentIndex = 0;
+					renderAgentList();
+					return;
+				}
+				if (str && str.length === 1) {
+					agentSearchString += str;
+					updateAgentFilter();
+					selectedAgentIndex = 0;
+					renderAgentList();
+					return;
+				}
 				return;
 			}
 
 			if (modelSelectionMode) {
 				if (key.name === "up") {
-					selectedModelIndex =
-						selectedModelIndex > 0 ? selectedModelIndex - 1 : modelList.length - 1;
+					if (selectedModelIndex === 0) {
+						selectedModelIndex = modelFilteredIndices.length - 1;
+					} else {
+						selectedModelIndex--;
+					}
 					renderModelList();
 					return;
 				}
 				if (key.name === "down") {
-					selectedModelIndex = (selectedModelIndex + 1) % modelList.length;
+					if (selectedModelIndex === modelFilteredIndices.length - 1) {
+						selectedModelIndex = 0;
+					} else {
+						selectedModelIndex++;
+					}
 					renderModelList();
 					return;
 				}
@@ -421,6 +552,8 @@ async function main() {
 					modelList = [];
 					selectedModelIndex = 0;
 					modelListLineCount = 0;
+					modelSearchString = "";
+					modelFilteredIndices = [];
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
 					writePrompt();
@@ -430,11 +563,14 @@ async function main() {
 					modelListLineCount++;
 					clearModelList();
 					process.stdout.write("\x1b[?25h");
-					const selected = modelList[selectedModelIndex];
+					const selectedIndex = modelFilteredIndices[selectedModelIndex];
+					const selected = selectedIndex !== undefined ? modelList[selectedIndex] : undefined;
 					modelSelectionMode = false;
 					modelList = [];
 					selectedModelIndex = 0;
 					modelListLineCount = 0;
+					modelSearchString = "";
+					modelFilteredIndices = [];
 					readline.cursorTo(process.stdout, 0);
 					readline.clearScreenDown(process.stdout);
 					if (selected) {
@@ -446,6 +582,20 @@ async function main() {
 						console.log();
 					}
 					writePrompt();
+					return;
+				}
+				if (key.name === "backspace") {
+					modelSearchString = modelSearchString.slice(0, -1);
+					updateModelFilter();
+					selectedModelIndex = 0;
+					renderModelList();
+					return;
+				}
+				if (str && str.length === 1) {
+					modelSearchString += str;
+					updateModelFilter();
+					selectedModelIndex = 0;
+					renderModelList();
 					return;
 				}
 				return;
@@ -940,8 +1090,8 @@ async function runAgents(): Promise<void> {
 		name: agent.name,
 	}));
 
-	selectedAgentIndex = agentList.findIndex((a) => a.id === config.agentID);
-	if (selectedAgentIndex === -1) selectedAgentIndex = 0;
+	agentSearchString = "";
+	updateAgentFilter();
 
 	agentSelectionMode = true;
 
@@ -964,9 +1114,16 @@ function renderAgentList(): void {
 	console.log("  \x1b[36;1mAvailable Agents\x1b[0m");
 	agentListLineCount++;
 
-	for (const agent of agentList) {
-		const globalIndex = agentList.indexOf(agent);
-		const isSelected = globalIndex === selectedAgentIndex;
+	if (agentSearchString) {
+		console.log(`  \x1b[90mFilter: \x1b[0m\x1b[33m${agentSearchString}\x1b[0m`);
+		agentListLineCount++;
+	}
+
+	for (let i = 0; i < agentFilteredIndices.length; i++) {
+		const globalIndex = agentFilteredIndices[i]!;
+		const agent = agentList[globalIndex];
+		if (!agent) continue;
+		const isSelected = i === selectedAgentIndex;
 		const isActive = agent.id === config.agentID;
 		const prefix = isSelected ? "  >" : "   -";
 		const name = isSelected ? `\x1b[33;1m${agent.name}\x1b[0m` : agent.name;
@@ -1030,10 +1187,8 @@ async function runModel(): Promise<void> {
 			a.providerName.localeCompare(b.providerName) || a.modelName.localeCompare(b.modelName),
 	);
 
-	selectedModelIndex = modelList.findIndex(
-		(m) => m.providerID === config.providerID && m.modelID === config.modelID,
-	);
-	if (selectedModelIndex === -1) selectedModelIndex = 0;
+	modelSearchString = "";
+	updateModelFilter();
 
 	modelSelectionMode = true;
 
@@ -1052,20 +1207,39 @@ function clearModelList() {
 function renderModelList(): void {
 	clearModelList();
 
-	const grouped = new Map<string, typeof modelList>();
+	const grouped = new Map<string, { models: typeof modelList; startIndices: number[] }>();
+	let currentIndex = 0;
 	for (const model of modelList) {
-		const list = grouped.get(model.providerName) || [];
-		list.push(model);
-		grouped.set(model.providerName, list);
+		const existing = grouped.get(model.providerName);
+		if (existing) {
+			existing.models.push(model);
+			existing.startIndices.push(currentIndex);
+		} else {
+			grouped.set(model.providerName, { models: [model], startIndices: [currentIndex] });
+		}
+		currentIndex++;
 	}
 
-	let globalIndex = 0;
 	modelListLineCount = 0;
-	for (const [providerName, models] of grouped) {
+	if (modelSearchString) {
+		console.log(`  \x1b[90mFilter: \x1b[0m\x1b[33m${modelSearchString}\x1b[0m`);
+		modelListLineCount++;
+	}
+
+	for (const [providerName, data] of grouped) {
+		const filteredModelsWithIndices = data.models
+			.map((model, i) => ({ model, globalIndex: data.startIndices[i]! }))
+			.filter(({ globalIndex }) => modelFilteredIndices.includes(globalIndex));
+
+		if (filteredModelsWithIndices.length === 0) continue;
+
 		console.log(`  \x1b[36;1m${providerName}\x1b[0m`);
 		modelListLineCount++;
-		for (const model of models) {
-			const isSelected = globalIndex === selectedModelIndex;
+
+		for (let i = 0; i < filteredModelsWithIndices.length; i++) {
+			const { model, globalIndex } = filteredModelsWithIndices[i]!;
+			const filteredIndex = modelFilteredIndices.indexOf(globalIndex);
+			const isSelected = filteredIndex === selectedModelIndex;
 			const isActive = model.providerID === config.providerID && model.modelID === config.modelID;
 			const prefix = isSelected ? "  >" : "   -";
 			const name = isSelected ? `\x1b[33;1m${model.modelName}\x1b[0m` : model.modelName;
@@ -1073,11 +1247,8 @@ function renderModelList(): void {
 
 			console.log(`${prefix} ${name}${status}`);
 			modelListLineCount++;
-			globalIndex++;
 		}
 	}
-	//console.log();
-	//modelListLineCount++;
 }
 
 async function runUndo(sessionId: string): Promise<void> {
@@ -1130,6 +1301,19 @@ async function runUndo(sessionId: string): Promise<void> {
 	console.log("Successfully reverted last message.\n");
 }
 
+async function runNew(): Promise<string> {
+	const newSessionId = await createSession();
+	config.sessionID = newSessionId;
+	saveConfig();
+
+	const activeDisplay = await getActiveDisplay();
+	console.log(activeDisplay);
+	console.log(`Created new session`);
+	console.log();
+
+	return newSessionId;
+}
+
 function runDetails(): void {
 	render(state, true);
 }
@@ -1163,8 +1347,8 @@ async function runSessions(): Promise<void> {
 
 	sessionList.sort((a, b) => b.updatedAt - a.updatedAt);
 
-	selectedSessionIndex = sessionList.findIndex((s) => s.id === config.sessionID);
-	if (selectedSessionIndex === -1) selectedSessionIndex = 0;
+	sessionSearchString = "";
+	updateSessionFilter();
 
 	sessionListOffset = Math.floor(selectedSessionIndex / 10) * 10;
 	if (sessionListOffset < 0) sessionListOffset = 0;
@@ -1190,7 +1374,13 @@ function renderSessionList(): void {
 	console.log("  \x1b[36;1mAvailable Sessions\x1b[0m");
 	sessionListLineCount++;
 
-	const recentSessions = sessionList.slice(sessionListOffset, sessionListOffset + 10);
+	if (sessionSearchString) {
+		console.log(`  \x1b[90mFilter: \x1b[0m\x1b[33m${sessionSearchString}\x1b[0m`);
+		sessionListLineCount++;
+	}
+
+	const filteredSessions = sessionList.filter((_, i) => sessionFilteredIndices.includes(i));
+	const recentSessions = filteredSessions.slice(sessionListOffset, sessionListOffset + 10);
 	const groupedByDate = recentSessions.reduce(
 		(acc, session) => {
 			const date = new Date(session.updatedAt).toLocaleDateString();
@@ -1209,7 +1399,8 @@ function renderSessionList(): void {
 
 		for (const session of sessions) {
 			const globalIndex = sessionList.indexOf(session);
-			const isSelected = globalIndex === selectedSessionIndex;
+			const filteredIndex = sessionFilteredIndices.indexOf(globalIndex);
+			const isSelected = filteredIndex === selectedSessionIndex;
 			const isActive = session.id === config.sessionID;
 			const prefix = isSelected ? "  >" : "   -";
 			const title = session.title || "(no title)";
