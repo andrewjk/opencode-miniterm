@@ -389,11 +389,14 @@ async function main() {
 			}
 
 			if (key.name === "escape") {
+				inputBuffer = "";
+				cursorPosition = 0;
+				showCompletions = false;
 				completionCycling = false;
+				completions = [];
 				readline.cursorTo(process.stdout, 0);
 				readline.clearScreenDown(process.stdout);
 				writePrompt();
-				process.stdout.write(inputBuffer);
 				return;
 			}
 
