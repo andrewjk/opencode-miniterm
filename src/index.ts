@@ -126,11 +126,31 @@ async function main() {
 		};
 
 		const renderLine = (): void => {
+			const consoleWidth = process.stdout.columns || 80;
+			const totalLength = 2 + inputBuffer.length;
+			const wrappedRows = Math.floor(totalLength / consoleWidth);
 			readline.cursorTo(process.stdout, 0);
+			if (wrappedRows > 0) {
+				readline.moveCursor(process.stdout, 0, -wrappedRows);
+			}
 			readline.clearScreenDown(process.stdout);
 			writePrompt();
 			process.stdout.write(inputBuffer);
-			readline.cursorTo(process.stdout, 2 + cursorPosition);
+
+			const totalPosition = 2 + cursorPosition;
+			const targetRow = Math.floor(totalPosition / consoleWidth);
+			const targetCol = totalPosition % consoleWidth;
+
+			const endCol = (2 + inputBuffer.length) % consoleWidth;
+			const endRow = Math.floor((2 + inputBuffer.length) / consoleWidth);
+
+			const deltaCol = targetCol - endCol;
+			let deltaRow = targetRow - endRow;
+			if (deltaCol !== 0 && endCol === 0) {
+				deltaRow += 1;
+			}
+
+			readline.moveCursor(process.stdout, deltaCol, deltaRow);
 		};
 
 		const handleTab = (): void => {
