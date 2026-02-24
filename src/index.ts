@@ -30,6 +30,7 @@ const SLASH_COMMANDS = [
 
 let processing = true;
 let allEvents: Event[] = [];
+let retryInterval: ReturnType<typeof setInterval> | null = null;
 
 interface ModelInfo {
 	providerID: string;
@@ -691,6 +692,12 @@ async function main() {
 // ====================
 
 function processEvent(event: Event): void {
+	// Clear any existing retry countdown when new events arrive
+	if (retryInterval && event.type !== "session.status") {
+		clearInterval(retryInterval);
+		retryInterval = null;
+	}
+
 	// Store all events for debugging
 	allEvents.push(event);
 
@@ -731,15 +738,37 @@ function processEvent(event: Event): void {
 		case "session.status":
 			if (event.type === "session.status" && event.properties.status.type === "idle") {
 				process.stdout.write("\x1b[?25h");
+				if (retryInterval) {
+					clearInterval(retryInterval);
+					retryInterval = null;
+				}
 			}
 			if (event.type === "session.status" && event.properties.status.type === "retry") {
 				const message = event.properties.status.message;
 				const retryTime = event.properties.status.next;
 				console.error(`\n\x1b[31mError:\x1b[0m ${message}`);
 				if (retryTime) {
+					if (retryInterval) {
+						clearInterval(retryInterval);
+					}
 					const retryDate = new Date(retryTime);
-					const timeUntilRetry = Math.max(0, Math.ceil((retryDate.getTime() - Date.now()) / 1000));
-					console.error(`\x1b[90mRetrying in ${timeUntilRetry}s...\x1b[0m`);
+
+					let lastSeconds = Math.max(0, Math.ceil((retryDate.getTime() - Date.now()) / 1000));
+					console.error(`\x1b[90mRetrying in ${lastSeconds}s...\x1b[0m`);
+
+					retryInterval = setInterval(() => {
+						const remaining = Math.max(0, Math.ceil((retryDate.getTime() - Date.now()) / 1000));
+						if (remaining !== lastSeconds) {
+							process.stdout.write(`\r\x1b[90mRetrying in ${remaining}s...\x1b[0m`);
+							lastSeconds = remaining;
+						}
+						if (remaining === 0) {
+							if (retryInterval) {
+								clearInterval(retryInterval);
+								retryInterval = null;
+							}
+						}
+					}, 100);
 				}
 			}
 			break;
