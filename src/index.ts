@@ -33,13 +33,10 @@ const ANIMATION_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧",
 function startAnimation(): void {
 	if (animationInterval) return;
 
-	process.stdout.write("\n\x1b[?25l");
-	state.renderedLinesCount = 1;
-
 	let index = 0;
 	animationInterval = setInterval(() => {
 		process.stdout.write("\r\x1b[1;35m");
-		process.stdout.write(`${ANIMATION_CHARS[index]} 🙏 Sending...\x1b[0m`);
+		process.stdout.write(`${ANIMATION_CHARS[index]}\x1b[0m`);
 		index = (index + 1) % ANIMATION_CHARS.length;
 	}, 100);
 }
@@ -49,6 +46,7 @@ function stopAnimation(): void {
 		clearInterval(animationInterval);
 		animationInterval = null;
 	}
+	process.stdout.write("\r\x1b[K");
 }
 
 let processing = true;
@@ -362,6 +360,8 @@ async function main() {
 						}
 						console.log();
 					} else {
+						process.stdout.write("\x1b[?25l");
+
 						startAnimation();
 
 						await sendMessage(sessionId, input);
@@ -775,6 +775,8 @@ function processEvent(event: Event): void {
 					clearInterval(retryInterval);
 					retryInterval = null;
 				}
+				writePrompt();
+				readline.cursorTo(process.stdout, 2);
 			}
 			if (event.type === "session.status" && event.properties.status.type === "retry") {
 				const message = event.properties.status.message;
@@ -840,12 +842,10 @@ function processPart(part: Part): void {
 }
 
 function processStepStart() {
-	stopAnimation();
 	processing = true;
 }
 
 function processReasoning(part: Part) {
-	stopAnimation();
 	processing = true;
 	let thinkingPart = findLastPart(part.id);
 	if (!thinkingPart) {
@@ -855,12 +855,10 @@ function processReasoning(part: Part) {
 		thinkingPart.text = (part as any).text || "";
 	}
 
-	// TODO: Only if it's changed?
 	render(state);
 }
 
 function processText(part: Part) {
-	stopAnimation();
 	let responsePart = findLastPart(part.id);
 	if (!responsePart) {
 		responsePart = { key: part.id, title: "response", text: (part as any).text || "" };
@@ -869,7 +867,6 @@ function processText(part: Part) {
 		responsePart.text = (part as any).text || "";
 	}
 
-	// TODO: Only if it's changed?
 	render(state);
 }
 
