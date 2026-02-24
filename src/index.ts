@@ -373,6 +373,18 @@ function processEvent(event: Event): void {
 			break;
 		}
 
+		// @ts-ignore this definitely exists
+		case "message.part.delta": {
+			// @ts-ignore
+			const partID = event.properties.partID;
+			// @ts-ignore
+			const delta = event.properties.delta;
+			if (partID !== undefined && delta !== undefined) {
+				processDelta(partID, delta);
+			}
+			break;
+		}
+
 		case "session.diff": {
 			const diff = event.properties.diff;
 			if (diff && diff.length > 0) {
