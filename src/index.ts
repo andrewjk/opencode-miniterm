@@ -22,7 +22,7 @@ const SLASH_COMMANDS = [
 	{ command: "/undo", description: "Undo changes for the last request" },
 	{ command: "/details", description: "Show all parts from the last request" },
 	{ command: "/debug", description: "Show raw events from the last request" },
-	{ command: "/kill", description: "Abort a session (e.g. /kill ses_123)" },
+	{ command: "/kill", description: "Abort a session (e.g. `/kill ses_123`)" },
 	{ command: "/exit", description: "Exit the application (you can also /quit)" },
 	//{ command: "/quit", description: "Exit the application (alias for /exit)" },
 	{ command: "/run", description: "Run a shell command (e.g. `/run git status`)" },
@@ -359,8 +359,12 @@ async function main() {
 						console.log(`\x1b[90mGoodbye!\x1b[0m`);
 						process.exit(0);
 					} else if (input === "/help") {
+						const maxCommandLength = Math.max(...SLASH_COMMANDS.map((c) => c.command.length));
 						for (const cmd of SLASH_COMMANDS) {
-							console.log(`  ${cmd.command} - ${cmd.description}`);
+							const padding = " ".repeat(maxCommandLength - cmd.command.length + 2);
+							console.log(
+								`  \x1b[97m${cmd.command}\x1b[0m${padding}\x1b[90m${cmd.description}\x1b[0m`,
+							);
 						}
 						console.log();
 					} else {
