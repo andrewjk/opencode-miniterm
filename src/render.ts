@@ -1,4 +1,6 @@
-import { type State } from ".";
+import type { OpencodeClient } from "@opencode-ai/sdk";
+import { config } from "./config";
+import type { State } from "./index";
 
 export function render(state: State, details = false): void {
 	clearRenderedLines(state);
@@ -140,4 +142,79 @@ function countRenderedLines(state: State, output: string): void {
 
 function stripAnsiCodes(str: string): string {
 	return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+export function writePrompt() {
+	stopAnimation();
+	process.stdout.write("\x1b[?25h");
+	process.stdout.write("\x1b[1;35m# \x1b[0m");
+}
+
+const ANIMATION_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"];
+let animationInterval: ReturnType<typeof setInterval> | null = null;
+
+export function startAnimation(): void {
+	if (animationInterval) return;
+
+	let index = 0;
+	animationInterval = setInterval(() => {
+		process.stdout.write("\r\x1b[1;35m");
+		process.stdout.write(`${ANIMATION_CHARS[index]}\x1b[0m`);
+		index = (index + 1) % ANIMATION_CHARS.length;
+	}, 100);
+}
+
+export function stopAnimation(): void {
+	if (animationInterval) {
+		clearInterval(animationInterval);
+		animationInterval = null;
+	}
+	process.stdout.write("\r\x1b[K");
+}
+
+export async function getActiveDisplay(client: OpencodeClient): Promise<string> {
+	let agentName = "";
+	let providerName = "";
+	let modelName = "";
+	try {
+		const [agentsResult, providersResult] = await Promise.all([
+			client.app.agents(),
+			client.config.providers(),
+		]);
+		if (!agentsResult.error) {
+			const agents = agentsResult.data || [];
+			const agent = agents.find((a) => a.name === config.agentID);
+			if (agent) {
+				agentName = agent.name.substring(0, 1).toUpperCase() + agent.name.substring(1);
+			}
+		}
+		if (!providersResult.error) {
+			const providers = providersResult.data?.providers || [];
+			for (const provider of providers) {
+				const models = Object.values(provider.models || {});
+				for (const model of models) {
+					if (provider.id === config.providerID && model.id === config.modelID) {
+						providerName = provider.name;
+						modelName = model.name || model.id;
+						break;
+					}
+				}
+				if (providerName) break;
+			}
+		}
+	} catch (error) {}
+
+	const parts: string[] = [];
+	if (agentName) {
+		parts.push(`\x1b[36m${agentName}\x1b[0m`);
+	}
+	if (modelName) {
+		let modelPart = `\x1b[97m${modelName}\x1b[0m`;
+		if (providerName) {
+			modelPart += ` \x1b[90m(${providerName})\x1b[0m`;
+		}
+		parts.push(modelPart);
+	}
+
+	return parts.join("  ");
 }
