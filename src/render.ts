@@ -47,7 +47,8 @@ export function render(state: State, details = false): void {
 		if (!part || !part.active || !part.text.trim()) continue;
 
 		if (part.title === "thinking") {
-			output += `💭 \x1b[90m${lastThinkingLines(part.text.trimStart())}\x1b[0m\n\n`;
+			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
+			output += `💭 \x1b[90m${partText}\x1b[0m\n\n`;
 		} else if (part.title === "response") {
 			output += `💬 ${part.text.trimStart()}\n\n`;
 		} else if (part.title === "tool") {
@@ -155,39 +156,110 @@ export function wrapText(text: string, width: number): string[] {
 	let visibleLength = 0;
 	let i = 0;
 
+	const pushLine = () => {
+		lines.push(currentLine);
+		currentLine = "";
+		visibleLength = 0;
+	};
+
+	const addWord = (word: string, wordVisibleLength: number) => {
+		if (!word || wordVisibleLength === 0) return;
+
+		const wouldFit =
+			visibleLength === 0
+				? wordVisibleLength <= width
+				: visibleLength + 1 + wordVisibleLength <= width;
+
+		if (wouldFit) {
+			if (visibleLength > 0) {
+				currentLine += " ";
+				visibleLength++;
+			}
+			currentLine += word;
+			visibleLength += wordVisibleLength;
+		} else if (visibleLength > 0) {
+			pushLine();
+			currentLine = word;
+			visibleLength = wordVisibleLength;
+		} else if (wordVisibleLength <= width) {
+			currentLine = word;
+			visibleLength = wordVisibleLength;
+		} else {
+			const wordWidth = width;
+			for (let w = 0; w < word.length; ) {
+				let segment = "";
+				let segmentVisible = 0;
+				let segmentStart = w;
+
+				while (w < word.length && segmentVisible < wordWidth) {
+					const char = word[w];
+					if (char === "\x1b" && word[w + 1] === "[") {
+						const ansiMatch = word.slice(w).match(/^\x1b\[[0-9;]*m/);
+						if (ansiMatch) {
+							segment += ansiMatch[0];
+							w += ansiMatch[0].length;
+						} else {
+							segment += char;
+							w++;
+						}
+					} else {
+						segment += char;
+						segmentVisible++;
+						w++;
+					}
+				}
+
+				if (segment) {
+					if (currentLine) {
+						pushLine();
+					}
+					currentLine = segment;
+					visibleLength = segmentVisible;
+				}
+			}
+		}
+	};
+
 	while (i < text.length) {
 		const char = text[i];
 
 		if (char === "\n") {
-			lines.push(currentLine);
-			currentLine = "";
-			visibleLength = 0;
+			pushLine();
 			i++;
 		} else if (char === "\r") {
 			i++;
-		} else if (char === "\x1b" && text[i + 1] === "[") {
-			const ansiMatch = text.slice(i).match(/^\x1b\[[0-9;]*m/);
-			if (ansiMatch) {
-				currentLine += ansiMatch[0];
-				i += ansiMatch[0].length;
-			} else {
-				currentLine += char;
-				i++;
-			}
-		} else {
-			if (visibleLength >= width) {
-				lines.push(currentLine);
-				currentLine = "";
-				visibleLength = 0;
-			}
-			currentLine += char;
-			visibleLength++;
+		} else if (char === " " || char === "\t") {
 			i++;
+		} else {
+			let word = "";
+			let wordVisibleLength = 0;
+
+			while (i < text.length) {
+				const char = text[i];
+				if (char === "\n" || char === "\r" || char === " " || char === "\t") {
+					break;
+				} else if (char === "\x1b" && text[i + 1] === "[") {
+					const ansiMatch = text.slice(i).match(/^\x1b\[[0-9;]*m/);
+					if (ansiMatch) {
+						word += ansiMatch[0];
+						i += ansiMatch[0].length;
+					} else {
+						word += char;
+						i++;
+					}
+				} else {
+					word += char;
+					wordVisibleLength++;
+					i++;
+				}
+			}
+
+			addWord(word, wordVisibleLength);
 		}
 	}
 
-	if (currentLine) {
-		lines.push(currentLine);
+	if (currentLine || lines.length === 0) {
+		pushLine();
 	}
 
 	return lines;
