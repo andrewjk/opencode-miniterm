@@ -15,13 +15,13 @@ let client: ReturnType<typeof createOpencodeClient>;
 
 const SLASH_COMMANDS = [
 	{ command: "/init", description: "Analyze project and create/update AGENTS.md" },
-	{ command: "/models", description: "List available models" },
-	{ command: "/undo", description: "Undo last message" },
-	{ command: "/details", description: "Show all parts from the last response" },
+	{ command: "/models", description: "List and select available models" },
+	{ command: "/undo", description: "Undo changes for the last request" },
+	{ command: "/details", description: "Show all parts from the last request" },
 	{ command: "/debug", description: "Show raw events from the last request" },
-	{ command: "/exit", description: "Exit the application" },
-	{ command: "/quit", description: "Exit the application (alias for /exit)" },
-	{ command: "/run", description: "Run a shell command" },
+	{ command: "/exit", description: "Exit the application (you can also /quit)" },
+	//{ command: "/quit", description: "Exit the application (alias for /exit)" },
+	{ command: "/run", description: "Run a shell command (e.g. `/run git status`)" },
 	{ command: "/help", description: "Show this help message" },
 ];
 
