@@ -1,27 +1,15 @@
-import type { HeadersInit } from "bun";
+import { createOpencodeClient } from "@opencode-ai/sdk";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { config, loadConfig, saveConfig } from "./config";
 import { render } from "./render";
-import type {
-	DiffInfo,
-	EventProperties,
-	EventType,
-	MessageInfo,
-	MessagesResponse,
-	ModelResponse,
-	Part,
-	PartType,
-	ServerEvent,
-	SessionInfo,
-	SessionResponse,
-	SessionStatus,
-	Tokens,
-} from "./types";
+import type { DiffInfo, MessagesResponse, Part, ServerEvent, SessionResponse } from "./types";
 
 const SERVER_URL = "http://127.0.0.1:4096";
 const AUTH_USERNAME = process.env.OPENCODE_SERVER_USERNAME || "opencode";
 const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
+
+let client: ReturnType<typeof createOpencodeClient>;
 
 const SLASH_COMMANDS = [
 	{ command: "/init", description: "Analyze project and create/update AGENTS.md" },
@@ -36,7 +24,6 @@ const SLASH_COMMANDS = [
 ];
 
 let processing = true;
-let lastEventTime = Date.now();
 let allEvents: ServerEvent[] = [];
 
 interface ModelInfo {
@@ -73,43 +60,19 @@ let state: State = {
 
 main().catch(console.error);
 
-async function getModelDisplay(): Promise<string> {
-	try {
-		const response = await fetchWithTimeout(
-			`${SERVER_URL}/config/providers`,
-			{
-				method: "GET",
-				headers: getAuthHeaders(),
-			},
-			10000,
-		);
-
-		if (!response.ok) {
-			return "";
-		}
-
-		const modelResponse = (await response.json()) as ModelResponse;
-
-		for (const provider of modelResponse.providers || []) {
-			const models = Object.values(provider.models || {});
-			for (const model of models) {
-				if (provider.id === config.providerID && model.id === config.modelID) {
-					const modelName = model.name || model.id;
-					return `\x1b[97m${modelName}\x1b[0m \x1b[90m(${provider.name})\x1b[0m`;
-				}
-			}
-		}
-	} catch (error) {
-		return "";
-	}
-
-	return "";
-}
-
 async function main() {
 	loadConfig();
 
 	const serverProcess = await startOpenCodeServer();
+
+	client = createOpencodeClient({
+		baseUrl: SERVER_URL,
+		headers: AUTH_PASSWORD
+			? {
+					Authorization: `Basic ${Buffer.from(`${AUTH_USERNAME}:${AUTH_PASSWORD}`).toString("base64")}`,
+				}
+			: undefined,
+	});
 
 	try {
 		const sessionId = await createSession();
@@ -392,8 +355,6 @@ async function main() {
 // ====================
 
 function processEvent(event: ServerEvent): void {
-	lastEventTime = Date.now();
-
 	// Store all events for debugging
 	allEvents.push(event);
 
@@ -549,45 +510,17 @@ function writePrompt() {
 
 async function startEventListener(): Promise<void> {
 	try {
-		const response = await fetch(`${SERVER_URL}/event`, {
-			headers: getAuthHeaders(false),
+		const { stream } = await client.event.subscribe({
+			onSseError: (error) => {
+				console.warn("SSE error:", error);
+			},
 		});
 
-		if (!response.ok) {
-			console.warn("Failed to connect to event stream");
-			return;
-		}
-
-		const reader = response.body?.getReader();
-		if (!reader) return;
-
-		const decoder = new TextDecoder();
-		let buffer = "";
-
-		while (true) {
+		for await (const event of stream) {
 			try {
-				const { done, value } = await reader.read();
-
-				if (done) break;
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-
-				for (const line of lines) {
-					if (line.startsWith("data: ")) {
-						const data = line.substring(6);
-						if (data === "[DONE]") continue;
-
-						try {
-							const event: ServerEvent = JSON.parse(data);
-							processEvent(event);
-						} catch (error) {}
-					}
-				}
-			} catch (error) {
-				break;
-			}
+				const serverEvent = event as ServerEvent;
+				processEvent(serverEvent);
+			} catch (error) {}
 		}
 	} catch (error) {}
 }
@@ -632,84 +565,23 @@ async function startOpenCodeServer() {
 	return serverProcess;
 }
 
-async function fetchWithTimeout(
-	url: string,
-	options: RequestInit,
-	timeoutMs: number = 120000,
-	resetOnActivity: boolean = false,
-): Promise<Response> {
-	const controller = new AbortController();
-	let timeout = setTimeout(() => controller.abort(), timeoutMs);
-	const startTime = lastEventTime;
-
-	const resetTimeout = (): void => {
-		clearTimeout(timeout);
-		timeout = setTimeout(() => controller.abort(), timeoutMs);
-	};
-
-	if (resetOnActivity) {
-		const interval = setInterval(() => {
-			if (lastEventTime > startTime) {
-				resetTimeout();
-			}
-		}, 5000);
-
-		try {
-			const response = await fetch(url, {
-				...options,
-				signal: controller.signal,
-			});
-			clearTimeout(timeout);
-			clearInterval(interval);
-			return response;
-		} catch (error: any) {
-			clearTimeout(timeout);
-			clearInterval(interval);
-			if (error.name === "AbortError") {
-				throw new Error(`Request timed out after ${timeoutMs}ms`);
-			}
-			throw error;
-		}
-	}
-
-	try {
-		const response = await fetch(url, {
-			...options,
-			signal: controller.signal,
-		});
-		clearTimeout(timeout);
-		return response;
-	} catch (error: any) {
-		clearTimeout(timeout);
-		if (error.name === "AbortError") {
-			throw new Error(`Request timed out after ${timeoutMs}ms`);
-		}
-		throw error;
-	}
-}
-
 async function createSession(): Promise<string> {
-	const response = await fetchWithTimeout(
-		`${SERVER_URL}/session`,
-		{
-			method: "POST",
-			headers: getAuthHeaders(),
-			body: JSON.stringify({}),
-		},
-		10000,
-	);
+	const result = await client.session.create({
+		body: {},
+	});
 
-	if (!response.ok) {
-		const error = await response.text();
-		if (response.status === 401 && !AUTH_PASSWORD) {
+	if (result.error) {
+		if (result.response.status === 401 && !AUTH_PASSWORD) {
 			throw new Error(
 				"Server requires authentication. Set OPENCODE_SERVER_PASSWORD environment variable.",
 			);
 		}
-		throw new Error(`Failed to create session (${response.status}): ${error}`);
+		throw new Error(
+			`Failed to create session (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
 	}
 
-	const session = (await response.json()) as SessionResponse;
+	const session = result.data as SessionResponse;
 	return session.id;
 }
 
@@ -718,39 +590,48 @@ async function sendMessage(sessionId: string, message: string) {
 	state.accumulatedResponse = [];
 	allEvents = [];
 
-	const response = await fetchWithTimeout(
-		`${SERVER_URL}/session/${sessionId}/message`,
-		{
-			method: "POST",
-			headers: getAuthHeaders(),
-			body: JSON.stringify({
-				model: {
-					providerID: config.providerID,
-					modelID: config.modelID,
-				},
-				parts: [{ type: "text", text: message }],
-			}),
+	const result = await client.session.prompt({
+		path: { id: sessionId },
+		body: {
+			model: {
+				providerID: config.providerID,
+				modelID: config.modelID,
+			},
+			parts: [{ type: "text", text: message }],
 		},
-		180000,
-		true,
-	);
+	});
 
-	if (!response.ok) {
-		const error = await response.text();
-		throw new Error(`Failed to send message (${response.status}): ${error}`);
+	if (result.error) {
+		throw new Error(
+			`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
 	}
 }
 
-function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
-	const headers: HeadersInit = {};
-	if (AUTH_PASSWORD) {
-		const credentials = Buffer.from(`${AUTH_USERNAME}:${AUTH_PASSWORD}`).toString("base64");
-		headers["Authorization"] = `Basic ${credentials}`;
+async function getModelDisplay(): Promise<string> {
+	try {
+		const result = await client.config.providers();
+
+		if (result.error) {
+			return "";
+		}
+
+		const providers = result.data?.providers || [];
+
+		for (const provider of providers) {
+			const models = Object.values(provider.models || {});
+			for (const model of models) {
+				if (provider.id === config.providerID && model.id === config.modelID) {
+					const modelName = model.name || model.id;
+					return `\x1b[97m${modelName}\x1b[0m \x1b[90m(${provider.name})\x1b[0m`;
+				}
+			}
+		}
+	} catch (error) {
+		return "";
 	}
-	if (includeContentType) {
-		headers["Content-Type"] = "application/json";
-	}
-	return headers;
+
+	return "";
 }
 
 // COMMANDS
@@ -758,47 +639,41 @@ function getAuthHeaders(includeContentType: boolean = true): HeadersInit {
 
 async function runInit(sessionId: string): Promise<void> {
 	console.log("Running /init command (analyzing project and creating AGENTS.md)...");
-	const response = await fetchWithTimeout(
-		`${SERVER_URL}/session/${sessionId}/init`,
-		{
-			method: "POST",
-			headers: getAuthHeaders(),
-			body: JSON.stringify({}),
-		},
-		180000,
-	);
+	const result = await client.session.init({
+		path: { id: sessionId },
+	});
 
-	if (!response.ok) {
-		const error = await response.text();
-		throw new Error(`Failed to run /init (${response.status}): ${error}`);
+	if (result.error) {
+		throw new Error(
+			`Failed to run /init (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
 	}
 
-	const result = await response.json();
-
 	console.log();
-	console.log(result ? "AGENTS.md created/updated successfully." : "No changes made to AGENTS.md.");
+	console.log(
+		result.data ? "AGENTS.md created/updated successfully." : "No changes made to AGENTS.md.",
+	);
+	console.log();
+	console.log();
+	console.log(
+		result.data ? "AGENTS.md created/updated successfully." : "No changes made to AGENTS.md.",
+	);
 	console.log();
 }
 
 async function runModel(sessionId: string): Promise<void> {
-	const response = await fetchWithTimeout(
-		`${SERVER_URL}/config/providers`,
-		{
-			method: "GET",
-			headers: getAuthHeaders(),
-		},
-		10000,
-	);
+	const result = await client.config.providers();
 
-	if (!response.ok) {
-		const error = await response.text();
-		throw new Error(`Failed to fetch models (${response.status}): ${error}`);
+	if (result.error) {
+		throw new Error(
+			`Failed to fetch models (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
 	}
 
-	const modelResponse = (await response.json()) as ModelResponse;
+	const providers = result.data?.providers || [];
 
 	modelList = [];
-	for (const provider of modelResponse.providers || []) {
+	for (const provider of providers) {
 		const models = Object.values(provider.models || {});
 		for (const model of models) {
 			modelList.push({
@@ -868,21 +743,17 @@ function renderModelList(): void {
 async function runUndo(sessionId: string): Promise<void> {
 	console.log("Fetching session messages...");
 
-	const messagesRes = await fetchWithTimeout(
-		`${SERVER_URL}/session/${sessionId}/message`,
-		{
-			method: "GET",
-			headers: getAuthHeaders(),
-		},
-		10000,
-	);
+	const messagesRes = await client.session.messages({
+		path: { id: sessionId },
+	});
 
-	if (!messagesRes.ok) {
-		const error = await messagesRes.text();
-		throw new Error(`Failed to fetch messages (${messagesRes.status}): ${error}`);
+	if (messagesRes.error) {
+		throw new Error(
+			`Failed to fetch messages (${messagesRes.response.status}): ${JSON.stringify(messagesRes.error)}`,
+		);
 	}
 
-	const messages = (await messagesRes.json()) as MessagesResponse[];
+	const messages = messagesRes.data as MessagesResponse[];
 
 	if (!messages || messages.length === 0) {
 		console.log("No messages to undo.\n");
@@ -903,21 +774,17 @@ async function runUndo(sessionId: string): Promise<void> {
 
 	console.log(`Reverting last assistant message (${lastMessage.info.id})...`);
 
-	const revertRes = await fetchWithTimeout(
-		`${SERVER_URL}/session/${sessionId}/revert`,
-		{
-			method: "POST",
-			headers: getAuthHeaders(),
-			body: JSON.stringify({
-				messageID: lastMessage.info.id,
-			}),
+	const revertRes = await client.session.revert({
+		path: { id: sessionId },
+		body: {
+			messageID: lastMessage.info.id,
 		},
-		30000,
-	);
+	});
 
-	if (!revertRes.ok) {
-		const error = await revertRes.text();
-		throw new Error(`Failed to revert message (${revertRes.status}): ${error}`);
+	if (revertRes.error) {
+		throw new Error(
+			`Failed to revert message (${revertRes.response.status}): ${JSON.stringify(revertRes.error)}`,
+		);
 	}
 
 	console.log("Successfully reverted last message.\n");

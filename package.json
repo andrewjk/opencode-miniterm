@@ -21,5 +21,8 @@
 	},
 	"peerDependencies": {
 		"typescript": "^5"
+	},
+	"dependencies": {
+		"@opencode-ai/sdk": "^1.2.10"
 	}
 }
