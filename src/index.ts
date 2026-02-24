@@ -334,11 +334,19 @@ async function main() {
 					break;
 				}
 				case "left": {
-					if (cursorPosition > 0) cursorPosition--;
+					if (key.meta) {
+						cursorPosition = findPreviousWordBoundary(inputBuffer, cursorPosition);
+					} else if (cursorPosition > 0) {
+						cursorPosition--;
+					}
 					break;
 				}
 				case "right": {
-					if (cursorPosition < inputBuffer.length) cursorPosition++;
+					if (key.meta) {
+						cursorPosition = findNextWordBoundary(inputBuffer, cursorPosition);
+					} else if (cursorPosition < inputBuffer.length) {
+						cursorPosition++;
+					}
 					break;
 				}
 				default: {
@@ -366,6 +374,38 @@ async function main() {
 
 // USER INTERFACE
 // ====================
+
+function findPreviousWordBoundary(text: string, pos: number): number {
+	if (pos <= 0) return 0;
+
+	let newPos = pos;
+
+	while (newPos > 0 && /\s/.test(text[newPos - 1]!)) {
+		newPos--;
+	}
+
+	while (newPos > 0 && !/\s/.test(text[newPos - 1]!)) {
+		newPos--;
+	}
+
+	return newPos;
+}
+
+function findNextWordBoundary(text: string, pos: number): number {
+	if (pos >= text.length) return text.length;
+
+	let newPos = pos;
+
+	while (newPos < text.length && !/\s/.test(text[newPos]!)) {
+		newPos++;
+	}
+
+	while (newPos < text.length && /\s/.test(text[newPos]!)) {
+		newPos++;
+	}
+
+	return newPos;
+}
 
 function processEvent(event: Event): void {
 	// Clear any existing retry countdown when new events arrive
