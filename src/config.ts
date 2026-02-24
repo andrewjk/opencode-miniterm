@@ -5,6 +5,7 @@ export interface Config {
 	providerID: string;
 	modelID: string;
 	agentID: string;
+	sessionID?: string;
 }
 
 const ENV_VAR = "OPENCODE_MT_CONFIG_CONTENT";

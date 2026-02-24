@@ -17,6 +17,7 @@ const SLASH_COMMANDS = [
 	{ command: "/init", description: "Analyze project and create/update AGENTS.md" },
 	{ command: "/agents", description: "List and select available agents" },
 	{ command: "/models", description: "List and select available models" },
+	{ command: "/sessions", description: "List and select sessions" },
 	{ command: "/undo", description: "Undo changes for the last request" },
 	{ command: "/details", description: "Show all parts from the last request" },
 	{ command: "/debug", description: "Show raw events from the last request" },
@@ -50,6 +51,18 @@ let agentSelectionMode = false;
 let agentList: AgentInfo[] = [];
 let selectedAgentIndex = 0;
 let agentListLineCount = 0;
+
+interface SessionInfo {
+	id: string;
+	title?: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
+let sessionSelectionMode = false;
+let sessionList: SessionInfo[] = [];
+let selectedSessionIndex = 0;
+let sessionListLineCount = 0;
 
 interface AccumulatedPart {
 	key: string;
@@ -88,7 +101,16 @@ async function main() {
 	});
 
 	try {
-		const sessionId = await createSession();
+		let sessionId = config.sessionID;
+		let isNewSession = false;
+
+		if (!sessionId || !(await validateSession(sessionId))) {
+			sessionId = await createSession();
+			isNewSession = true;
+			config.sessionID = sessionId;
+			saveConfig();
+		}
+
 		startEventListener();
 
 		const activeDisplay = await getActiveDisplay();
@@ -96,6 +118,9 @@ async function main() {
 		process.stdout.write(`\x1b[${2}A\x1b[0J`);
 		process.stdout.write("\x1b[0G");
 		console.log(activeDisplay);
+		if (!isNewSession) {
+			console.log("Resumed last session");
+		}
 		console.log();
 		console.log("\x1b[90mAsk anything...\x1b[0m\n");
 
@@ -203,6 +228,8 @@ async function main() {
 						await runAgents();
 					} else if (input === "/models") {
 						await runModel();
+					} else if (input === "/sessions") {
+						await runSessions();
 					} else if (input === "/undo") {
 						await runUndo(sessionId);
 					} else if (input === "/details") {
@@ -254,6 +281,56 @@ async function main() {
 		};
 
 		process.stdin.on("keypress", async (str, key) => {
+			if (sessionSelectionMode) {
+				if (key.name === "up") {
+					selectedSessionIndex =
+						selectedSessionIndex > 0 ? selectedSessionIndex - 1 : sessionList.length - 1;
+					renderSessionList();
+					return;
+				}
+				if (key.name === "down") {
+					selectedSessionIndex = (selectedSessionIndex + 1) % sessionList.length;
+					renderSessionList();
+					return;
+				}
+				if (key.name === "escape") {
+					clearSessionList();
+					process.stdout.write("\x1b[?25h");
+					sessionSelectionMode = false;
+					sessionList = [];
+					selectedSessionIndex = 0;
+					sessionListLineCount = 0;
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
+					writePrompt();
+					return;
+				}
+				if (key.name === "return") {
+					sessionListLineCount++;
+					clearSessionList();
+					process.stdout.write("\x1b[?25h");
+					const selected = sessionList[selectedSessionIndex];
+					sessionSelectionMode = false;
+					sessionList = [];
+					selectedSessionIndex = 0;
+					sessionListLineCount = 0;
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
+					if (selected) {
+						config.sessionID = selected.id;
+						saveConfig();
+						console.log(`Switched to session: ${selected.id.substring(0, 8)}...`);
+						if (selected.title) {
+							console.log(`  Title: ${selected.title}`);
+						}
+						console.log();
+					}
+					writePrompt();
+					return;
+				}
+				return;
+			}
+
 			if (agentSelectionMode) {
 				if (key.name === "up") {
 					selectedAgentIndex =
@@ -684,6 +761,17 @@ async function createSession(): Promise<string> {
 	return session.id;
 }
 
+async function validateSession(sessionId: string): Promise<boolean> {
+	try {
+		const result = await client.session.get({
+			path: { id: sessionId },
+		});
+		return !result.error && result.response.status === 200;
+	} catch {
+		return false;
+	}
+}
+
 async function sendMessage(sessionId: string, message: string) {
 	processing = false;
 	state.accumulatedResponse = [];
@@ -962,6 +1050,91 @@ async function runUndo(sessionId: string): Promise<void> {
 
 function runDetails(): void {
 	render(state, true);
+}
+
+async function runSessions(): Promise<void> {
+	const result = await client.session.list();
+
+	if (result.error) {
+		throw new Error(
+			`Failed to fetch sessions (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
+	}
+
+	const sessions = (result.data as Session[]) || [];
+
+	if (sessions.length === 0) {
+		console.log("No sessions found. Creating a new session...");
+		const newSessionId = await createSession();
+		config.sessionID = newSessionId;
+		saveConfig();
+		console.log(`Created new session: ${newSessionId.substring(0, 8)}...\n`);
+		return;
+	}
+
+	sessionList = sessions.map((session) => ({
+		id: session.id,
+		title: session.title,
+		createdAt: session.time?.created || Date.now(),
+		updatedAt: session.time?.updated || Date.now(),
+	}));
+
+	sessionList.sort((a, b) => b.updatedAt - a.updatedAt);
+
+	selectedSessionIndex = sessionList.findIndex((s) => s.id === config.sessionID);
+	if (selectedSessionIndex === -1) selectedSessionIndex = 0;
+
+	sessionSelectionMode = true;
+
+	renderSessionList();
+}
+
+function clearSessionList() {
+	process.stdout.write("\x1b[?25l");
+	if (sessionListLineCount > 0) {
+		process.stdout.write(`\x1b[${sessionListLineCount}A`);
+	}
+	readline.cursorTo(process.stdout, 0);
+	readline.clearScreenDown(process.stdout);
+}
+
+function renderSessionList(): void {
+	clearSessionList();
+
+	sessionListLineCount = 0;
+	console.log("  \x1b[36;1mAvailable Sessions\x1b[0m");
+	sessionListLineCount++;
+
+	const recentSessions = sessionList.slice(0, 10);
+	const groupedByDate = recentSessions.reduce(
+		(acc, session) => {
+			const date = new Date(session.updatedAt).toLocaleDateString();
+			if (!acc[date]) {
+				acc[date] = [];
+			}
+			acc[date].push(session);
+			return acc;
+		},
+		{} as Record<string, typeof recentSessions>,
+	);
+
+	for (const [date, sessions] of Object.entries(groupedByDate)) {
+		console.log(`  \x1b[90m${date}\x1b[0m`);
+		sessionListLineCount++;
+
+		for (const session of sessions) {
+			const globalIndex = sessionList.indexOf(session);
+			const isSelected = globalIndex === selectedSessionIndex;
+			const isActive = session.id === config.sessionID;
+			const prefix = isSelected ? "  >" : "   -";
+			const title = session.title || "(no title)";
+			const name = isSelected ? `\x1b[33;1m${title}\x1b[0m` : title;
+			const status = isActive ? " (active)" : "";
+
+			console.log(`${prefix} ${name}${status}`);
+			sessionListLineCount++;
+		}
+	}
 }
 
 function runDebug(): void {
