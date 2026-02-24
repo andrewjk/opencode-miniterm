@@ -1,9 +1,11 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
+import type { Event, FileDiff, Message, Part, Session, ToolPart } from "@opencode-ai/sdk";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { config, loadConfig, saveConfig } from "./config";
 import { render } from "./render";
-import type { DiffInfo, MessagesResponse, Part, ServerEvent, SessionResponse } from "./types";
+
+type MessagesResponse = Array<{ info: Message; parts: Array<Part> }>;
 
 const SERVER_URL = "http://127.0.0.1:4096";
 const AUTH_USERNAME = process.env.OPENCODE_SERVER_USERNAME || "opencode";
@@ -24,7 +26,7 @@ const SLASH_COMMANDS = [
 ];
 
 let processing = true;
-let allEvents: ServerEvent[] = [];
+let allEvents: Event[] = [];
 
 interface ModelInfo {
 	providerID: string;
@@ -354,36 +356,34 @@ async function main() {
 // USER INTERFACE
 // ====================
 
-function processEvent(event: ServerEvent): void {
+function processEvent(event: Event): void {
 	// Store all events for debugging
 	allEvents.push(event);
 
 	switch (event.type) {
-		case "message.part.updated":
+		case "message.part.updated": {
 			const part = event.properties.part;
+			const delta = event.properties.delta;
 			if (part) {
 				processPart(part);
 			}
-			break;
-
-		case "message.part.delta":
-			const partID = event.properties.partID;
-			const delta = event.properties.delta;
-			if (partID !== undefined && delta !== undefined) {
-				processDelta(partID, delta);
+			if (delta !== undefined && part) {
+				processDelta(part.id, delta);
 			}
 			break;
+		}
 
-		case "session.diff":
+		case "session.diff": {
 			const diff = event.properties.diff;
 			if (diff && diff.length > 0) {
 				processDiff(diff);
 			}
 			break;
+		}
 
 		case "session.idle":
 		case "session.status":
-			if (event.properties.status?.type === "idle") {
+			if (event.type === "session.status" && event.properties.status.type === "idle") {
 				process.stdout.write("\x1b[?25h");
 			}
 			break;
@@ -429,10 +429,10 @@ function processReasoning(part: Part) {
 	processing = true;
 	let thinkingPart = findLastPart(part.id);
 	if (!thinkingPart) {
-		thinkingPart = { key: part.id, title: "thinking", text: part.text || "" };
+		thinkingPart = { key: part.id, title: "thinking", text: (part as any).text || "" };
 		state.accumulatedResponse.push(thinkingPart);
 	} else {
-		thinkingPart.text = part.text || "";
+		thinkingPart.text = (part as any).text || "";
 	}
 
 	// TODO: Only if it's changed?
@@ -442,10 +442,10 @@ function processReasoning(part: Part) {
 function processText(part: Part) {
 	let responsePart = findLastPart(part.id);
 	if (!responsePart) {
-		responsePart = { key: part.id, title: "response", text: part.text || "" };
+		responsePart = { key: part.id, title: "response", text: (part as any).text || "" };
 		state.accumulatedResponse.push(responsePart);
 	} else {
-		responsePart.text = part.text || "";
+		responsePart.text = (part as any).text || "";
 	}
 
 	// TODO: Only if it's changed?
@@ -453,7 +453,7 @@ function processText(part: Part) {
 }
 
 function processToolUse(part: Part) {
-	const toolText = `🔧 Using \`${part.tool || "unknown"}\``;
+	const toolText = `🔧 Using \`${(part as ToolPart).tool || "unknown"}\``;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
 		state.accumulatedResponse[state.accumulatedResponse.length - 1]!.text = toolText;
@@ -474,12 +474,13 @@ function processDelta(partID: string, delta: string) {
 	render(state);
 }
 
-function processDiff(diff: DiffInfo[]) {
+function processDiff(diff: FileDiff[]) {
 	const parts: string[] = [];
 	for (const file of diff) {
-		const statusIcon = file.status === "added" ? "A" : file.status === "modified" ? "M" : "D";
+		const status = !file.before ? "added" : !file.after ? "deleted" : "modified";
+		const statusIcon = status === "added" ? "A" : status === "modified" ? "M" : "D";
 		const statusLabel =
-			file.status === "added" ? "added" : file.status === "modified" ? "modified" : "deleted";
+			status === "added" ? "added" : status === "modified" ? "modified" : "deleted";
 		const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
 		const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
 		const stats = [addStr, delStr].filter(Boolean).join(" ");
@@ -518,8 +519,7 @@ async function startEventListener(): Promise<void> {
 
 		for await (const event of stream) {
 			try {
-				const serverEvent = event as ServerEvent;
-				processEvent(serverEvent);
+				processEvent(event);
 			} catch (error) {}
 		}
 	} catch (error) {}
@@ -581,7 +581,7 @@ async function createSession(): Promise<string> {
 		);
 	}
 
-	const session = result.data as SessionResponse;
+	const session = result.data as Session;
 	return session.id;
 }
 
@@ -753,7 +753,7 @@ async function runUndo(sessionId: string): Promise<void> {
 		);
 	}
 
-	const messages = messagesRes.data as MessagesResponse[];
+	const messages = messagesRes.data as MessagesResponse;
 
 	if (!messages || messages.length === 0) {
 		console.log("No messages to undo.\n");
