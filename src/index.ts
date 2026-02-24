@@ -58,6 +58,7 @@ export interface State {
 	accumulatedResponse: AccumulatedPart[];
 	allEvents: Event[];
 	write: (text: string) => void;
+	lastFileAfter: Map<string, string>;
 }
 
 let state: State = {
@@ -66,6 +67,7 @@ let state: State = {
 	accumulatedResponse: [],
 	allEvents: [],
 	write: (text) => process.stdout.write(text),
+	lastFileAfter: new Map(),
 };
 
 main().catch(console.error);
@@ -537,6 +539,7 @@ function processDelta(partID: string, delta: string) {
 }
 
 function processDiff(diff: FileDiff[]) {
+	let hasChanges = false;
 	const parts: string[] = [];
 	for (const file of diff) {
 		const status = !file.before ? "added" : !file.after ? "deleted" : "modified";
@@ -548,11 +551,19 @@ function processDiff(diff: FileDiff[]) {
 		const stats = [addStr, delStr].filter(Boolean).join(" ");
 		const line = `  \x1b[34m${statusIcon}\x1b[0m ${file.file} (${statusLabel}) ${stats}`;
 		parts.push(line);
+
+		const newAfter = file.after ?? "";
+		const oldAfter = state.lastFileAfter.get(file.file);
+		if (newAfter !== oldAfter) {
+			hasChanges = true;
+			state.lastFileAfter.set(file.file, newAfter);
+		}
 	}
 
-	state.accumulatedResponse.push({ key: "diff", title: "files", text: parts.join("\n") });
-
-	render(state);
+	if (hasChanges) {
+		state.accumulatedResponse.push({ key: "diff", title: "files", text: parts.join("\n") });
+		render(state);
+	}
 }
 
 function findLastPart(title: string) {
