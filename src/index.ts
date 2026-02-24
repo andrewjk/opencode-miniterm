@@ -789,7 +789,9 @@ function processEvent(event: Event): void {
 			if (event.type === "session.status" && event.properties.status.type === "retry") {
 				const message = event.properties.status.message;
 				const retryTime = event.properties.status.next;
+				const sessionId = event.properties.sessionID;
 				console.error(`\n\x1b[31mError:\x1b[0m ${message}`);
+				console.error(`\x1b[90mSession:\x1b[0m ${sessionId}`);
 				if (retryTime) {
 					if (retryInterval) {
 						clearInterval(retryInterval);
