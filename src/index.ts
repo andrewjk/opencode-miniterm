@@ -5,6 +5,7 @@ import readline from "node:readline";
 import agentsCommand from "./commands/agents";
 import debugCommand from "./commands/debug";
 import detailsCommand from "./commands/details";
+import diffCommand from "./commands/diff";
 import exitCommand from "./commands/exit";
 import initCommand from "./commands/init";
 import killCommand from "./commands/kill";
@@ -29,6 +30,7 @@ const SLASH_COMMANDS = [
 	newCommand,
 	undoCommand,
 	detailsCommand,
+	diffCommand,
 	debugCommand,
 	killCommand,
 	exitCommand,
