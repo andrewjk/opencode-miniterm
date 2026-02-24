@@ -1,7 +1,6 @@
 import type { Agent, OpencodeClient } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
-import type { State } from "../index";
 import { getActiveDisplay, writePrompt } from "../render";
 import type { Command } from "../types";
 
@@ -10,7 +9,6 @@ interface AgentInfo {
 	name: string;
 }
 
-let agentSelectionMode = false;
 let agentList: AgentInfo[] = [];
 let selectedAgentIndex = 0;
 let agentListLineCount = 0;
@@ -44,7 +42,7 @@ async function run(client: OpencodeClient): Promise<void> {
 	agentSearchString = "";
 	updateAgentFilter();
 
-	agentSelectionMode = true;
+	command.running = true;
 
 	renderAgentList();
 }
@@ -72,7 +70,7 @@ async function handleKey(client: OpencodeClient, key: Key, str?: string) {
 		case "escape": {
 			clearAgentList();
 			process.stdout.write("\x1b[?25h");
-			agentSelectionMode = false;
+			command.running = false;
 			agentList = [];
 			selectedAgentIndex = 0;
 			agentListLineCount = 0;
@@ -89,7 +87,7 @@ async function handleKey(client: OpencodeClient, key: Key, str?: string) {
 			process.stdout.write("\x1b[?25h");
 			const selectedIndex = agentFilteredIndices[selectedAgentIndex];
 			const selected = selectedIndex !== undefined ? agentList[selectedIndex] : undefined;
-			agentSelectionMode = false;
+			command.running = false;
 			agentList = [];
 			selectedAgentIndex = 0;
 			agentListLineCount = 0;

@@ -4,8 +4,10 @@ import { render } from "../src/render";
 
 describe("render", () => {
 	const createMockState = (overrides?: Partial<State>): State => ({
+		sessionID: "",
 		renderedLinesCount: 0,
 		accumulatedResponse: [],
+		allEvents: [],
 		write: vi.fn(),
 		...overrides,
 	});

@@ -1,7 +1,6 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
-import type { State } from "../index";
 import { getActiveDisplay, writePrompt } from "../render";
 import type { Command } from "../types";
 
@@ -60,7 +59,6 @@ async function run(client: OpencodeClient): Promise<void> {
 	modelSearchString = "";
 	updateModelFilter();
 
-	//modelSelectionMode = true;
 	command.running = true;
 
 	renderModelList();
@@ -89,7 +87,6 @@ async function handleKey(client: OpencodeClient, key: Key, str?: string) {
 		case "escape": {
 			clearModelList();
 			process.stdout.write("\x1b[?25h");
-			//modelSelectionMode = false;
 			command.running = false;
 			modelList = [];
 			selectedModelIndex = 0;
@@ -107,7 +104,6 @@ async function handleKey(client: OpencodeClient, key: Key, str?: string) {
 			process.stdout.write("\x1b[?25h");
 			const selectedIndex = modelFilteredIndices[selectedModelIndex];
 			const selected = selectedIndex !== undefined ? modelList[selectedIndex] : undefined;
-			//modelSelectionMode = false;
 			command.running = false;
 			modelList = [];
 			selectedModelIndex = 0;

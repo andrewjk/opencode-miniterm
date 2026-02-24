@@ -14,6 +14,7 @@ export default command;
 async function run(client: OpencodeClient, _state: State, input?: string): Promise<void> {
 	if (!input) {
 		console.log("Usage: /kill <session_id>");
+		console.log();
 		return;
 	}
 

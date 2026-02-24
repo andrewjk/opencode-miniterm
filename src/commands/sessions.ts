@@ -22,7 +22,6 @@ interface SessionInfo {
 	updatedAt: number;
 }
 
-let sessionSelectionMode = false;
 let sessionList: SessionInfo[] = [];
 let selectedSessionIndex = 0;
 let sessionListLineCount = 0;
@@ -43,10 +42,10 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 
 	if (sessions.length === 0) {
 		console.log("No sessions found. Creating a new session...");
-		state.sessionId = await createSession(client);
-		config.sessionID = state.sessionId;
+		state.sessionID = await createSession(client);
+		config.sessionID = state.sessionID;
 		saveConfig();
-		console.log(`Created new session: ${state.sessionId}...\n`);
+		console.log(`Created new session: ${state.sessionID}...\n`);
 		return;
 	}
 
@@ -65,7 +64,7 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 	sessionListOffset = Math.floor(selectedSessionIndex / 10) * 10;
 	if (sessionListOffset < 0) sessionListOffset = 0;
 
-	sessionSelectionMode = true;
+	command.running = true;
 
 	renderSessionList();
 }
@@ -106,7 +105,7 @@ async function handleKey(_client: OpencodeClient, key: Key, str?: string) {
 		case "escape": {
 			clearSessionList();
 			process.stdout.write("\x1b[?25h");
-			sessionSelectionMode = false;
+			command.running = false;
 			sessionList = [];
 			selectedSessionIndex = 0;
 			sessionListOffset = 0;
@@ -124,7 +123,7 @@ async function handleKey(_client: OpencodeClient, key: Key, str?: string) {
 			process.stdout.write("\x1b[?25h");
 			const selectedIndex = sessionFilteredIndices[selectedSessionIndex];
 			const selected = selectedIndex !== undefined ? sessionList[selectedIndex] : undefined;
-			sessionSelectionMode = false;
+			command.running = false;
 			sessionList = [];
 			selectedSessionIndex = 0;
 			sessionListOffset = 0;

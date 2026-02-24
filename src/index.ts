@@ -51,7 +51,7 @@ interface AccumulatedPart {
 }
 
 export interface State {
-	sessionId: string;
+	sessionID: string;
 	renderedLinesCount: number;
 	accumulatedResponse: AccumulatedPart[];
 	allEvents: Event[];
@@ -59,14 +59,12 @@ export interface State {
 }
 
 let state: State = {
-	sessionId: "",
+	sessionID: "",
 	renderedLinesCount: 0,
 	accumulatedResponse: [],
 	allEvents: [],
 	write: (text) => process.stdout.write(text),
 };
-
-let currentRequestMessageId: string | null = null;
 
 main().catch(console.error);
 
@@ -87,14 +85,14 @@ async function main() {
 	try {
 		let isNewSession = false;
 
-		const initialSessionId = config.sessionID;
-		if (!initialSessionId || !(await validateSession(initialSessionId))) {
-			state.sessionId = await createSession();
+		const initialSessionID = config.sessionID;
+		if (!initialSessionID || !(await validateSession(initialSessionID))) {
+			state.sessionID = await createSession();
 			isNewSession = true;
-			config.sessionID = state.sessionId;
+			config.sessionID = state.sessionID;
 			saveConfig();
 		} else {
-			state.sessionId = initialSessionId;
+			state.sessionID = initialSessionID;
 		}
 
 		startEventListener();
@@ -131,7 +129,9 @@ async function main() {
 
 		const getCompletions = (text: string): string[] => {
 			if (text.startsWith("/")) {
-				return SLASH_COMMANDS.map((c) => c.name).filter((cmd) => cmd.startsWith(text));
+				return ["/help", ...SLASH_COMMANDS.map((c) => c.name)].filter((cmd) =>
+					cmd.startsWith(text),
+				);
 			}
 			return [];
 		};
@@ -219,19 +219,23 @@ async function main() {
 						console.log();
 						return;
 					} else if (input.startsWith("/")) {
-						const commandName = input.substring(0, input.indexOf(" ")).toLowerCase();
-						for (let command of SLASH_COMMANDS) {
-							if (command.name === commandName) {
-								await command.run(client, state, input.substring(commandName.length).trim());
-								console.log();
-								return;
+						const parts = input.match(/(\/[^\s]+)\s*(.*)/)!;
+						if (parts) {
+							const commandName = parts[1];
+							const extra = parts[2]?.trim();
+							for (let command of SLASH_COMMANDS) {
+								if (command.name === commandName) {
+									await command.run(client, state, extra);
+									return;
+								}
 							}
 						}
+						return;
 					}
 
 					process.stdout.write("\x1b[?25l");
 					startAnimation();
-					await sendMessage(state.sessionId, input);
+					await sendMessage(state.sessionID, input);
 				} catch (error: any) {
 					if (error.message !== "Request cancelled") {
 						stopAnimation();
@@ -417,9 +421,9 @@ function processEvent(event: Event): void {
 			if (event.type === "session.status" && event.properties.status.type === "retry") {
 				const message = event.properties.status.message;
 				const retryTime = event.properties.status.next;
-				const sessionId = event.properties.sessionID;
+				const sessionID = event.properties.sessionID;
 				console.error(`\n\x1b[31mError:\x1b[0m ${message}`);
-				console.error(`\x1b[90mSession:\x1b[0m ${sessionId}`);
+				console.error(`\x1b[90mSession:\x1b[0m ${sessionID}`);
 				if (retryTime) {
 					if (retryInterval) {
 						clearInterval(retryInterval);
@@ -649,10 +653,10 @@ async function createSession(): Promise<string> {
 	return result.data.id;
 }
 
-async function validateSession(sessionId: string): Promise<boolean> {
+async function validateSession(sessionID: string): Promise<boolean> {
 	try {
 		const result = await client.session.get({
-			path: { id: sessionId },
+			path: { id: sessionID },
 		});
 		return !result.error && result.response.status === 200;
 	} catch {
@@ -660,7 +664,7 @@ async function validateSession(sessionId: string): Promise<boolean> {
 	}
 }
 
-async function sendMessage(sessionId: string, message: string) {
+async function sendMessage(sessionID: string, message: string) {
 	processing = false;
 	state.accumulatedResponse = [];
 	state.allEvents = [];
@@ -669,7 +673,7 @@ async function sendMessage(sessionId: string, message: string) {
 
 	try {
 		const result = await client.session.prompt({
-			path: { id: sessionId },
+			path: { id: sessionID },
 			body: {
 				model: {
 					providerID: config.providerID,

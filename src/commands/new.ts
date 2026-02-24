@@ -14,8 +14,8 @@ let command: Command = {
 export default command;
 
 async function run(client: OpencodeClient, state: State) {
-	state.sessionId = await createSession(client);
-	config.sessionID = state.sessionId;
+	state.sessionID = await createSession(client);
+	config.sessionID = state.sessionID;
 	saveConfig();
 
 	const activeDisplay = await getActiveDisplay(client);
