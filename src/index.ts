@@ -39,7 +39,7 @@ function startAnimation(): void {
 	let index = 0;
 	animationInterval = setInterval(() => {
 		process.stdout.write("\r\x1b[1;35m");
-		process.stdout.write(`${ANIMATION_CHARS[index]} \x1b[0m`);
+		process.stdout.write(`${ANIMATION_CHARS[index]} 🙏 Sending...\x1b[0m`);
 		index = (index + 1) % ANIMATION_CHARS.length;
 	}, 100);
 }
@@ -55,6 +55,7 @@ let processing = true;
 let allEvents: Event[] = [];
 let retryInterval: ReturnType<typeof setInterval> | null = null;
 let animationInterval: ReturnType<typeof setInterval> | null = null;
+let messageAbortController: AbortController | null = null;
 
 interface ModelInfo {
 	providerID: string;
@@ -361,17 +362,15 @@ async function main() {
 						}
 						console.log();
 					} else {
-						process.stdout.write("\x1b[?25l");
-						console.log("🙏 Sending...");
-						console.log();
-						state.renderedLinesCount = 2;
 						startAnimation();
 
 						await sendMessage(sessionId, input);
 					}
 				} catch (error: any) {
-					stopAnimation();
-					console.error("Error:", error.message);
+					if (error.message !== "Request cancelled") {
+						stopAnimation();
+						console.error("Error:", error.message);
+					}
 				}
 			}
 
@@ -663,14 +662,21 @@ async function main() {
 			}
 
 			if (key.name === "escape") {
-				inputBuffer = "";
-				cursorPosition = 0;
-				showCompletions = false;
-				completionCycling = false;
-				completions = [];
-				readline.cursorTo(process.stdout, 0);
-				readline.clearScreenDown(process.stdout);
-				writePrompt();
+				if (messageAbortController) {
+					messageAbortController.abort();
+					stopAnimation();
+					process.stdout.write("\x1b[?25h");
+					process.stdout.write("\r\x1b[90mCancelled request\x1b[0m\n");
+				} else {
+					inputBuffer = "";
+					cursorPosition = 0;
+					showCompletions = false;
+					completionCycling = false;
+					completions = [];
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
+					writePrompt();
+				}
 				return;
 			}
 
@@ -1031,21 +1037,33 @@ async function sendMessage(sessionId: string, message: string) {
 	state.accumulatedResponse = [];
 	allEvents = [];
 
-	const result = await client.session.prompt({
-		path: { id: sessionId },
-		body: {
-			model: {
-				providerID: config.providerID,
-				modelID: config.modelID,
-			},
-			parts: [{ type: "text", text: message }],
-		},
-	});
+	messageAbortController = new AbortController();
 
-	if (result.error) {
-		throw new Error(
-			`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
-		);
+	try {
+		const result = await client.session.prompt({
+			path: { id: sessionId },
+			body: {
+				model: {
+					providerID: config.providerID,
+					modelID: config.modelID,
+				},
+				parts: [{ type: "text", text: message }],
+			},
+			signal: messageAbortController.signal,
+		});
+
+		if (result.error) {
+			throw new Error(
+				`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
+			);
+		}
+	} catch (error: any) {
+		if (error.name === "AbortError" || messageAbortController?.signal.aborted) {
+			throw new Error("Request cancelled");
+		}
+		throw error;
+	} finally {
+		messageAbortController = null;
 	}
 }
 
