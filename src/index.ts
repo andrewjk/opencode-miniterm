@@ -344,10 +344,7 @@ async function main() {
 						await sendMessage(sessionId, input);
 					}
 				} catch (error: any) {
-					process.stdout.write("\x1b[?25h");
-					console.log();
-					console.error("\x1b[31m✗\x1b[0m", error.message || "An unknown error occurred");
-					console.log();
+					console.error("Error:", error.message);
 				}
 			}
 
@@ -735,6 +732,16 @@ function processEvent(event: Event): void {
 			if (event.type === "session.status" && event.properties.status.type === "idle") {
 				process.stdout.write("\x1b[?25h");
 			}
+			if (event.type === "session.status" && event.properties.status.type === "retry") {
+				const message = event.properties.status.message;
+				const retryTime = event.properties.status.next;
+				console.error(`\n\x1b[31mError:\x1b[0m ${message}`);
+				if (retryTime) {
+					const retryDate = new Date(retryTime);
+					const timeUntilRetry = Math.max(0, Math.ceil((retryDate.getTime() - Date.now()) / 1000));
+					console.error(`\x1b[90mRetrying in ${timeUntilRetry}s...\x1b[0m`);
+				}
+			}
 			break;
 
 		default:
@@ -867,7 +874,6 @@ async function startEventListener(): Promise<void> {
 					"\n\x1b[31mConnection error:\x1b[0m",
 					error instanceof Error ? error.message : String(error),
 				);
-				console.log("\x1b[90mReconnecting...\x1b[0m");
 			},
 		});
 
@@ -977,52 +983,9 @@ async function sendMessage(sessionId: string, message: string) {
 	});
 
 	if (result.error) {
-		const status = result.response.status;
-		const errorData = result.error;
-		let errorMessage = "";
-
-		switch (status) {
-			case 401:
-				errorMessage =
-					"Authentication failed. Please check your OPENCODE_SERVER_PASSWORD environment variable.";
-				break;
-			case 402:
-				errorMessage = "Quote exceeded. You have reached your usage limit for this billing period.";
-				break;
-			case 429:
-				errorMessage = "Rate limit exceeded. Please wait a moment before trying again.";
-				break;
-			case 400:
-			case 422: {
-				const errorObj = errorData as any;
-				const details = errorObj.details || errorObj.message || JSON.stringify(errorData);
-				if (
-					details.toLowerCase().includes("model") &&
-					(details.toLowerCase().includes("not found") ||
-						details.toLowerCase().includes("unavailable"))
-				) {
-					errorMessage = `Model '${config.modelID}' is unavailable. Use /models to select a different model.`;
-				} else if (
-					details.toLowerCase().includes("provider") &&
-					details.toLowerCase().includes("not found")
-				) {
-					errorMessage = `Provider '${config.providerID}' is not available. Use /models to select a different provider.`;
-				} else {
-					errorMessage = `Invalid request: ${details}`;
-				}
-				break;
-			}
-			case 500:
-			case 502:
-			case 503:
-			case 504:
-				errorMessage = `Server error (${status}). The service may be temporarily unavailable. Please try again.`;
-				break;
-			default:
-				errorMessage = `Failed to send message (${status}): ${JSON.stringify(errorData)}`;
-		}
-
-		throw new Error(errorMessage);
+		throw new Error(
+			`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
 	}
 }
 
