@@ -125,15 +125,19 @@ async function main() {
 			return [];
 		};
 
+		// TODO: Backspacing past the beginning of a line chews up too many lines
+		let oldWrappedRows = 0;
 		const renderLine = (): void => {
 			const consoleWidth = process.stdout.columns || 80;
-			const totalLength = 2 + inputBuffer.length;
+			const totalLength = 2 + inputBuffer.length + 1;
 			const wrappedRows = Math.floor(totalLength / consoleWidth);
 			readline.cursorTo(process.stdout, 0);
-			if (wrappedRows > 0) {
-				readline.moveCursor(process.stdout, 0, -wrappedRows);
+			if (oldWrappedRows > 0) {
+				readline.moveCursor(process.stdout, 0, -oldWrappedRows);
 			}
 			readline.clearScreenDown(process.stdout);
+			oldWrappedRows = wrappedRows;
+
 			writePrompt();
 			process.stdout.write(inputBuffer);
 
