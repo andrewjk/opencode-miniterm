@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 export interface Config {
 	providerID: string;
 	modelID: string;
+	agentID: string;
 }
 
 const ENV_VAR = "OPENCODE_MT_CONFIG_CONTENT";
@@ -11,6 +12,7 @@ const ENV_VAR = "OPENCODE_MT_CONFIG_CONTENT";
 export const config: Config = {
 	providerID: "opencode",
 	modelID: "big-pickle",
+	agentID: "build",
 };
 
 const CONFIG_PATH = `${process.env.HOME}/.config/opencode-miniterm/opencode-miniterm.json`;

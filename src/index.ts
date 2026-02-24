@@ -15,6 +15,7 @@ let client: ReturnType<typeof createOpencodeClient>;
 
 const SLASH_COMMANDS = [
 	{ command: "/init", description: "Analyze project and create/update AGENTS.md" },
+	{ command: "/agents", description: "List and select available agents" },
 	{ command: "/models", description: "List and select available models" },
 	{ command: "/undo", description: "Undo changes for the last request" },
 	{ command: "/details", description: "Show all parts from the last request" },
@@ -39,6 +40,16 @@ let modelSelectionMode = false;
 let modelList: ModelInfo[] = [];
 let selectedModelIndex = 0;
 let modelListLineCount = 0;
+
+interface AgentInfo {
+	id: string;
+	name: string;
+}
+
+let agentSelectionMode = false;
+let agentList: AgentInfo[] = [];
+let selectedAgentIndex = 0;
+let agentListLineCount = 0;
 
 interface AccumulatedPart {
 	key: string;
@@ -80,10 +91,12 @@ async function main() {
 		const sessionId = await createSession();
 		startEventListener();
 
+		const agentDisplay = getAgentDisplay();
 		const modelDisplay = await getModelDisplay();
 
 		process.stdout.write(`\x1b[${2}A\x1b[0J`);
 		process.stdout.write("\x1b[0G");
+		console.log(agentDisplay);
 		console.log(modelDisplay);
 		console.log();
 		console.log("\x1b[90mAsk anything...\x1b[0m\n");
@@ -164,6 +177,8 @@ async function main() {
 				try {
 					if (input === "/init") {
 						await runInit(sessionId);
+					} else if (input === "/agents") {
+						await runAgents();
 					} else if (input === "/models") {
 						await runModel(sessionId);
 					} else if (input === "/undo") {
@@ -211,12 +226,59 @@ async function main() {
 				}
 			}
 
-			if (!modelSelectionMode) {
+			if (!modelSelectionMode && !agentSelectionMode) {
 				writePrompt();
 			}
 		};
 
 		process.stdin.on("keypress", async (str, key) => {
+			if (agentSelectionMode) {
+				if (key.name === "up") {
+					selectedAgentIndex =
+						selectedAgentIndex > 0 ? selectedAgentIndex - 1 : agentList.length - 1;
+					renderAgentList();
+					return;
+				}
+				if (key.name === "down") {
+					selectedAgentIndex = (selectedAgentIndex + 1) % agentList.length;
+					renderAgentList();
+					return;
+				}
+				if (key.name === "escape") {
+					clearAgentList();
+					process.stdout.write("\x1b[?25h");
+					agentSelectionMode = false;
+					agentList = [];
+					selectedAgentIndex = 0;
+					agentListLineCount = 0;
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
+					writePrompt();
+					return;
+				}
+				if (key.name === "return") {
+					agentListLineCount++;
+					clearAgentList();
+					process.stdout.write("\x1b[?25h");
+					const selected = agentList[selectedAgentIndex];
+					agentSelectionMode = false;
+					agentList = [];
+					selectedAgentIndex = 0;
+					agentListLineCount = 0;
+					readline.cursorTo(process.stdout, 0);
+					readline.clearScreenDown(process.stdout);
+					if (selected) {
+						config.agentID = selected.id;
+						saveConfig();
+						console.log(`\x1b[97mAgent:\x1b[0m \x1b[36m${selected.name}\x1b[0m`);
+						console.log();
+					}
+					writePrompt();
+					return;
+				}
+				return;
+			}
+
 			if (modelSelectionMode) {
 				if (key.name === "up") {
 					selectedModelIndex =
@@ -646,8 +708,61 @@ async function getModelDisplay(): Promise<string> {
 	return "";
 }
 
+function getAgentDisplay(): string {
+	const agentNames: Record<string, string> = {
+		build: "Build Agent",
+		code: "Code Agent",
+		test: "Test Agent",
+	};
+	const agentName = agentNames[config.agentID] || config.agentID;
+	return `\x1b[97mAgent:\x1b[0m \x1b[36m${agentName}\x1b[0m`;
+}
+
 // COMMANDS
 // ====================
+
+async function runAgents(): Promise<void> {
+	agentList = [
+		{ id: "build", name: "Build Agent" },
+		{ id: "code", name: "Code Agent" },
+		{ id: "test", name: "Test Agent" },
+	];
+
+	selectedAgentIndex = agentList.findIndex((a) => a.id === config.agentID);
+	if (selectedAgentIndex === -1) selectedAgentIndex = 0;
+
+	agentSelectionMode = true;
+
+	renderAgentList();
+}
+
+function clearAgentList() {
+	process.stdout.write("\x1b[?25l");
+	if (agentListLineCount > 0) {
+		process.stdout.write(`\x1b[${agentListLineCount}A`);
+	}
+	readline.cursorTo(process.stdout, 0);
+	readline.clearScreenDown(process.stdout);
+}
+
+function renderAgentList(): void {
+	clearAgentList();
+
+	agentListLineCount = 0;
+	console.log("  \x1b[36;1mAvailable Agents\x1b[0m");
+	agentListLineCount++;
+	for (const agent of agentList) {
+		const globalIndex = agentList.indexOf(agent);
+		const isSelected = globalIndex === selectedAgentIndex;
+		const isActive = agent.id === config.agentID;
+		const prefix = isSelected ? "  >" : "   -";
+		const name = isSelected ? `\x1b[33;1m${agent.name}\x1b[0m` : agent.name;
+		const status = isActive ? " (active)" : "";
+
+		console.log(`${prefix} ${name}${status}`);
+		agentListLineCount++;
+	}
+}
 
 async function runInit(sessionId: string): Promise<void> {
 	console.log("Running /init command (analyzing project and creating AGENTS.md)...");
