@@ -14,6 +14,7 @@ export function render(state: State, details = false): void {
 	// Only show the last files part between parts
 	let foundPart = false;
 	let foundPartBetweenFiles = true;
+	let foundFiles = false;
 	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
 		const part = state.accumulatedResponse[i]!;
 		if (details) {
@@ -29,8 +30,9 @@ export function render(state: State, details = false): void {
 			part.active = !foundPart;
 			foundPartBetweenFiles = part.active;
 		} else if (part.title === "files") {
-			part.active = foundPartBetweenFiles;
+			part.active = foundPartBetweenFiles && !foundFiles;
 			foundPartBetweenFiles = false;
+			foundFiles = part.active;
 		} else {
 			foundPart = true;
 			foundPartBetweenFiles = true;
