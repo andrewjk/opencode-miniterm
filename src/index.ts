@@ -1,5 +1,5 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
-import type { Event, FileDiff, Message, Part, Session, ToolPart } from "@opencode-ai/sdk";
+import type { Agent, Event, FileDiff, Message, Part, Session, ToolPart } from "@opencode-ai/sdk";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { config, loadConfig, saveConfig } from "./config";
@@ -91,13 +91,11 @@ async function main() {
 		const sessionId = await createSession();
 		startEventListener();
 
-		const agentDisplay = getAgentDisplay();
-		const modelDisplay = await getModelDisplay();
+		const activeDisplay = await getActiveDisplay();
 
 		process.stdout.write(`\x1b[${2}A\x1b[0J`);
 		process.stdout.write("\x1b[0G");
-		console.log(agentDisplay);
-		console.log(modelDisplay);
+		console.log(activeDisplay);
 		console.log();
 		console.log("\x1b[90mAsk anything...\x1b[0m\n");
 
@@ -180,7 +178,7 @@ async function main() {
 					} else if (input === "/agents") {
 						await runAgents();
 					} else if (input === "/models") {
-						await runModel(sessionId);
+						await runModel();
 					} else if (input === "/undo") {
 						await runUndo(sessionId);
 					} else if (input === "/details") {
@@ -270,7 +268,8 @@ async function main() {
 					if (selected) {
 						config.agentID = selected.id;
 						saveConfig();
-						console.log(`\x1b[97mAgent:\x1b[0m \x1b[36m${selected.name}\x1b[0m`);
+						const activeDisplay = await getActiveDisplay();
+						console.log(activeDisplay);
 						console.log();
 					}
 					writePrompt();
@@ -318,9 +317,8 @@ async function main() {
 						config.providerID = selected.providerID;
 						config.modelID = selected.modelID;
 						saveConfig();
-						console.log(
-							`\x1b[97m${selected.modelName}\x1b[0m \x1b[90m(${selected.providerName})\x1b[0m`,
-						);
+						const activeDisplay = await getActiveDisplay();
+						console.log(activeDisplay);
 						console.log();
 					}
 					writePrompt();
@@ -682,51 +680,69 @@ async function sendMessage(sessionId: string, message: string) {
 	}
 }
 
-async function getModelDisplay(): Promise<string> {
+async function getActiveDisplay(): Promise<string> {
+	let agentName = "";
+	let providerName = "";
+	let modelName = "";
 	try {
-		const result = await client.config.providers();
-
-		if (result.error) {
-			return "";
-		}
-
-		const providers = result.data?.providers || [];
-
-		for (const provider of providers) {
-			const models = Object.values(provider.models || {});
-			for (const model of models) {
-				if (provider.id === config.providerID && model.id === config.modelID) {
-					const modelName = model.name || model.id;
-					return `\x1b[97m${modelName}\x1b[0m \x1b[90m(${provider.name})\x1b[0m`;
-				}
+		const [agentsResult, providersResult] = await Promise.all([
+			client.app.agents(),
+			client.config.providers(),
+		]);
+		if (!agentsResult.error) {
+			const agents = agentsResult.data || [];
+			const agent = agents.find((a: Agent) => a.name === config.agentID);
+			if (agent) {
+				agentName = agent.name.substring(0, 1).toUpperCase() + agent.name.substring(1);
 			}
 		}
-	} catch (error) {
-		return "";
+		if (!providersResult.error) {
+			const providers = providersResult.data?.providers || [];
+			for (const provider of providers) {
+				const models = Object.values(provider.models || {});
+				for (const model of models) {
+					if (provider.id === config.providerID && model.id === config.modelID) {
+						providerName = provider.name;
+						modelName = model.name || model.id;
+						break;
+					}
+				}
+				if (providerName) break;
+			}
+		}
+	} catch (error) {}
+
+	const parts: string[] = [];
+	if (agentName) {
+		parts.push(`\x1b[36m${agentName}\x1b[0m`);
+	}
+	if (modelName) {
+		let modelPart = `\x1b[97m${modelName}\x1b[0m`;
+		if (providerName) {
+			modelPart += ` \x1b[90m(${providerName})\x1b[0m`;
+		}
+		parts.push(modelPart);
 	}
 
-	return "";
-}
-
-function getAgentDisplay(): string {
-	const agentNames: Record<string, string> = {
-		build: "Build Agent",
-		code: "Code Agent",
-		test: "Test Agent",
-	};
-	const agentName = agentNames[config.agentID] || config.agentID;
-	return `\x1b[97mAgent:\x1b[0m \x1b[36m${agentName}\x1b[0m`;
+	return parts.join("  ");
 }
 
 // COMMANDS
 // ====================
 
 async function runAgents(): Promise<void> {
-	agentList = [
-		{ id: "build", name: "Build Agent" },
-		{ id: "code", name: "Code Agent" },
-		{ id: "test", name: "Test Agent" },
-	];
+	const result = await client.app.agents();
+
+	if (result.error) {
+		throw new Error(
+			`Failed to fetch agents (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
+	}
+
+	agentList = (result.data || []).map((agent: Agent) => ({
+		id: agent.name,
+		name: agent.name,
+	}));
 
 	selectedAgentIndex = agentList.findIndex((a) => a.id === config.agentID);
 	if (selectedAgentIndex === -1) selectedAgentIndex = 0;
@@ -788,7 +804,7 @@ async function runInit(sessionId: string): Promise<void> {
 	console.log();
 }
 
-async function runModel(sessionId: string): Promise<void> {
+async function runModel(): Promise<void> {
 	const result = await client.config.providers();
 
 	if (result.error) {
