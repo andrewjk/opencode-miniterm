@@ -61,8 +61,17 @@ export function render(state: State, details = false): void {
 	}
 
 	if (output) {
-		state.write(output);
-		countRenderedLines(state, output);
+		if (process.stdout.columns) {
+			const lines = wrapText(output, process.stdout.columns);
+			for (let i = 0; i < lines.length; i++) {
+				state.write(lines[i]!);
+				state.write("\n");
+			}
+			state.renderedLinesCount = lines.length;
+		} else {
+			state.write(output);
+			countRenderedLines(state, output);
+		}
 	}
 }
 
@@ -138,6 +147,50 @@ function countRenderedLines(state: State, output: string): void {
 	}
 
 	state.renderedLinesCount = lineCount;
+}
+
+export function wrapText(text: string, width: number): string[] {
+	const lines: string[] = [];
+	let currentLine = "";
+	let visibleLength = 0;
+	let i = 0;
+
+	while (i < text.length) {
+		const char = text[i];
+
+		if (char === "\n") {
+			lines.push(currentLine);
+			currentLine = "";
+			visibleLength = 0;
+			i++;
+		} else if (char === "\r") {
+			i++;
+		} else if (char === "\x1b" && text[i + 1] === "[") {
+			const ansiMatch = text.slice(i).match(/^\x1b\[[0-9;]*m/);
+			if (ansiMatch) {
+				currentLine += ansiMatch[0];
+				i += ansiMatch[0].length;
+			} else {
+				currentLine += char;
+				i++;
+			}
+		} else {
+			if (visibleLength >= width) {
+				lines.push(currentLine);
+				currentLine = "";
+				visibleLength = 0;
+			}
+			currentLine += char;
+			visibleLength++;
+			i++;
+		}
+	}
+
+	if (currentLine) {
+		lines.push(currentLine);
+	}
+
+	return lines;
 }
 
 function stripAnsiCodes(str: string): string {

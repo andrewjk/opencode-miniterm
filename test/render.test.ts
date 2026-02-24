@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "bun:test";
 import { type State } from "../src";
-import { render } from "../src/render";
+import { render, wrapText } from "../src/render";
 
 describe("render", () => {
 	const createMockState = (overrides?: Partial<State>): State => ({
@@ -237,6 +237,141 @@ describe("render", () => {
 			expect(output).not.toContain("💭 Thinking...");
 			expect(output).toContain("Running: npm test");
 			expect(output).toContain("💬 Response:");
+		});
+	});
+});
+
+describe("wrapText", () => {
+	describe("basic wrapping", () => {
+		it("should return single line for text shorter than width", () => {
+			const result = wrapText("hello", 20);
+			expect(result).toEqual(["hello"]);
+		});
+
+		it("should wrap text longer than width", () => {
+			const result = wrapText("hello world this is a long text", 10);
+			expect(result).toEqual(["hello worl", "d this is ", "a long tex", "t"]);
+		});
+
+		it("should handle text exactly at width", () => {
+			const result = wrapText("1234567890", 10);
+			expect(result).toEqual(["1234567890"]);
+		});
+
+		it("should handle text one character over width", () => {
+			const result = wrapText("12345678901", 10);
+			expect(result).toEqual(["1234567890", "1"]);
+		});
+	});
+
+	describe("multiple lines", () => {
+		it("should preserve existing newlines", () => {
+			const result = wrapText("line1\nline2\nline3", 20);
+			expect(result).toEqual(["line1", "line2", "line3"]);
+		});
+
+		it("should wrap lines that are too long", () => {
+			const result = wrapText("very long line1\nshort\nvery long line2", 10);
+			expect(result).toEqual(["very long ", "line1", "short", "very long ", "line2"]);
+		});
+
+		it("should handle empty lines", () => {
+			const result = wrapText("line1\n\nline3", 20);
+			expect(result).toEqual(["line1", "", "line3"]);
+		});
+	});
+
+	describe("ANSI codes", () => {
+		it("should preserve ANSI codes in output", () => {
+			const result = wrapText("\x1b[31mred\x1b[0m text", 20);
+			expect(result).toEqual(["\x1b[31mred\x1b[0m text"]);
+		});
+
+		it("should not count ANSI codes toward visible width", () => {
+			const result = wrapText("\x1b[31mred\x1b[0m text", 8);
+			expect(result).toEqual(["\x1b[31mred\x1b[0m text"]);
+		});
+
+		it("should handle multiple ANSI codes", () => {
+			const result = wrapText("\x1b[31m\x1b[1mbold red\x1b[0m\x1b[32m green\x1b[0m", 10);
+			expect(result).toEqual(["\x1b[31m\x1b[1mbold red\x1b[0m\x1b[32m g", "reen\x1b[0m"]);
+		});
+
+		it("should handle ANSI codes at wrap boundary", () => {
+			const result = wrapText("12345\x1b[31m67890\x1b[0m", 10);
+			expect(result).toEqual(["12345\x1b[31m67890\x1b[0m"]);
+		});
+	});
+
+	describe("edge cases", () => {
+		it("should handle empty string", () => {
+			const result = wrapText("", 20);
+			expect(result).toEqual([]);
+		});
+
+		it("should handle single character", () => {
+			const result = wrapText("a", 20);
+			expect(result).toEqual(["a"]);
+		});
+
+		it("should handle width of 1", () => {
+			const result = wrapText("abc", 1);
+			expect(result).toEqual(["a", "b", "c"]);
+		});
+
+		it("should handle carriage return characters", () => {
+			const result = wrapText("hello\r\nworld", 20);
+			expect(result).toEqual(["hello", "world"]);
+		});
+
+		it("should handle trailing newline", () => {
+			const result = wrapText("hello\n", 20);
+			expect(result).toEqual(["hello"]);
+		});
+
+		it("should handle multiple trailing newlines", () => {
+			const result = wrapText("hello\n\n", 20);
+			expect(result).toEqual(["hello", ""]);
+		});
+
+		it("should handle leading newline", () => {
+			const result = wrapText("\nhello", 20);
+			expect(result).toEqual(["", "hello"]);
+		});
+	});
+
+	describe("real-world scenarios", () => {
+		it("should wrap thinking output with emoji", () => {
+			const result = wrapText(
+				"💭 Thinking...\nLet me analyze this problem step by step to find the best solution",
+				40,
+			);
+			expect(result.length).toBeGreaterThan(1);
+			expect(result[0]).toBe("💭 Thinking...");
+			expect(result[1]).toContain("Let me analyze");
+		});
+
+		it("should wrap response output with emoji", () => {
+			const result = wrapText(
+				"💬 Here is the solution:\nWe need to implement the fix by updating the wrapText function",
+				30,
+			);
+			expect(result.length).toBeGreaterThan(1);
+		});
+
+		it("should wrap output with ANSI colors", () => {
+			const result = wrapText(
+				"\x1b[90mThis is gray text\x1b[0m and this is \x1b[31mred\x1b[0m",
+				25,
+			);
+			expect(result[0]).toContain("\x1b[90m");
+			expect(result[0]).toContain("\x1b[0m");
+		});
+
+		it("should handle tool output", () => {
+			const result = wrapText("🔧 Using `bash`\nRunning command to install dependencies", 35);
+			expect(result[0]).toBe("🔧 Using `bash`");
+			expect(result[1]).toContain("Running command");
 		});
 	});
 });

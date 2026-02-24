@@ -670,6 +670,7 @@ async function sendMessage(sessionID: string, message: string) {
 	processing = false;
 	state.accumulatedResponse = [];
 	state.allEvents = [];
+	state.renderedLinesCount = 0;
 
 	messageAbortController = new AbortController();
 
