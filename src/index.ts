@@ -1,3 +1,5 @@
+#!/usr/bin/env bun
+
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type {
 	Agent,
