@@ -48,9 +48,9 @@ export function render(state: State, details = false): void {
 
 		if (part.title === "thinking") {
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
-			output += `💭 \x1b[90m${partText}\x1b[0m\n\n`;
+			output += `💭 Thinking...\n\n\x1b[90m${partText}\x1b[0m\n\n`;
 		} else if (part.title === "response") {
-			output += `💬 ${part.text.trimStart()}\n\n`;
+			output += `💬 Response:\n\n${part.text.trimStart()}\n\n`;
 		} else if (part.title === "tool") {
 			output += part.text + "\n\n";
 		} else if (part.title === "files") {
@@ -113,8 +113,8 @@ function lastThinkingLines(text: string): string {
 
 function clearRenderedLines(state: State): void {
 	if (state.renderedLinesCount > 0) {
-		process.stdout.write(`\x1b[${state.renderedLinesCount}A\x1b[0J`);
-		process.stdout.write("\x1b[0G");
+		state.write(`\x1b[${state.renderedLinesCount}A\x1b[J`);
+		state.write("\x1b[0G");
 		state.renderedLinesCount = 0;
 	}
 }
