@@ -30,7 +30,7 @@ export function render(state: State, details = false): void {
 			part.active = !foundPart;
 		} else if (part.title === "files") {
 			part.active = !foundFiles;
-			foundFiles = part.active;
+			foundFiles = true;
 		} else {
 			foundPart = true;
 			part.active = true;
@@ -49,9 +49,6 @@ export function render(state: State, details = false): void {
 		} else if (part.title === "tool") {
 			output += part.text + "\n\n";
 		} else if (part.title === "files") {
-			while (state.accumulatedResponse[i + 1]?.title === "files") {
-				i++;
-			}
 			output += part.text + "\n\n";
 		}
 	}
