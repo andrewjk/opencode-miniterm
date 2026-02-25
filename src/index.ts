@@ -1,8 +1,10 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Agent, Event, FileDiff, Message, Part, Session, ToolPart } from "@opencode-ai/sdk";
 import { spawn } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import { glob } from "node:fs/promises";
 import { stat } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import readline from "node:readline";
 import agentsCommand from "./commands/agents";
 import debugCommand from "./commands/debug";
@@ -11,6 +13,7 @@ import diffCommand from "./commands/diff";
 import exitCommand from "./commands/exit";
 import initCommand from "./commands/init";
 import killCommand from "./commands/kill";
+import logCommand, { isLoggingEnabled } from "./commands/log";
 import modelsCommand from "./commands/models";
 import newCommand from "./commands/new";
 import pageCommand from "./commands/page";
@@ -35,6 +38,7 @@ const SLASH_COMMANDS = [
 	detailsCommand,
 	diffCommand,
 	debugCommand,
+	logCommand,
 	pageCommand,
 	killCommand,
 	exitCommand,
@@ -73,6 +77,62 @@ let state: State = {
 	write: (text) => process.stdout.write(text),
 	lastFileAfter: new Map(),
 };
+
+let logFile: Awaited<ReturnType<typeof open>> | null = null;
+let logFilePath: string | null = null;
+
+function getLogDir(): string {
+	const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+	return `${homeDir}/.local/share/opencode-miniterm/log`;
+}
+
+async function createLogFile(): Promise<void> {
+	if (!isLoggingEnabled()) {
+		return;
+	}
+
+	const logDir = getLogDir();
+	await mkdir(logDir, { recursive: true });
+
+	const now = new Date();
+	const timestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+	const filename = `${timestamp}.txt`;
+	logFilePath = `${logDir}/${filename}`;
+
+	try {
+		logFile = await open(logFilePath, "w");
+	} catch (error) {
+		console.error("Failed to create log file:", error);
+		logFile = null;
+		logFilePath = null;
+	}
+}
+
+async function closeLogFile(): Promise<void> {
+	if (logFile) {
+		try {
+			await logFile.close();
+		} catch (error) {
+			console.error("Failed to close log file:", error);
+		}
+		logFile = null;
+		logFilePath = null;
+	}
+}
+
+async function writeToLog(text: string): Promise<void> {
+	if (logFile && isLoggingEnabled()) {
+		try {
+			await logFile.write(text);
+		} catch (error) {
+			console.error("Failed to write to log file:", error);
+		}
+	}
+}
+
+function stripAnsiCodes(str: string): string {
+	return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
 
 async function getFileCompletions(pattern: string): Promise<string[]> {
 	try {
@@ -277,6 +337,9 @@ async function main() {
 
 					process.stdout.write("\x1b[?25l");
 					startAnimation();
+					if (isLoggingEnabled()) {
+						console.log(`📝 \x1b[90mLogging to ${getLogDir()}\n\x1b[0m`);
+					}
 					await sendMessage(state.sessionID, input);
 				} catch (error: any) {
 					if (error.message !== "Request cancelled") {
@@ -445,7 +508,7 @@ function findNextWordBoundary(text: string, pos: number): number {
 	return newPos;
 }
 
-function processEvent(event: Event): void {
+async function processEvent(event: Event): Promise<void> {
 	// Clear any existing retry countdown when new events arrive
 	if (retryInterval && event.type !== "session.status") {
 		clearInterval(retryInterval);
@@ -460,7 +523,7 @@ function processEvent(event: Event): void {
 			const part = event.properties.part;
 			const delta = event.properties.delta;
 			if (part) {
-				processPart(part);
+				await processPart(part);
 			}
 			if (delta !== undefined && part) {
 				processDelta(part.id, delta);
@@ -483,7 +546,7 @@ function processEvent(event: Event): void {
 		case "session.diff": {
 			const diff = event.properties.diff;
 			if (diff && diff.length > 0) {
-				processDiff(diff);
+				await processDiff(diff);
 			}
 			break;
 		}
@@ -537,7 +600,7 @@ function processEvent(event: Event): void {
 	}
 }
 
-function processPart(part: Part): void {
+async function processPart(part: Part): Promise<void> {
 	switch (part.type) {
 		case "step-start":
 			processStepStart();
@@ -569,7 +632,7 @@ function processStepStart() {
 	processing = true;
 }
 
-function processReasoning(part: Part) {
+async function processReasoning(part: Part) {
 	processing = true;
 	let thinkingPart = findLastPart(part.id);
 	if (!thinkingPart) {
@@ -579,10 +642,14 @@ function processReasoning(part: Part) {
 		thinkingPart.text = (part as any).text || "";
 	}
 
+	const text = (part as any).text || "";
+	const cleanText = stripAnsiCodes(text.trimStart());
+	await writeToLog(`💭 Thinking...\n\n${cleanText}\n\n`);
+
 	render(state);
 }
 
-function processText(part: Part) {
+async function processText(part: Part) {
 	let responsePart = findLastPart(part.id);
 	if (!responsePart) {
 		responsePart = { key: part.id, title: "response", text: (part as any).text || "" };
@@ -591,12 +658,17 @@ function processText(part: Part) {
 		responsePart.text = (part as any).text || "";
 	}
 
+	const text = (part as any).text || "";
+	const cleanText = stripAnsiCodes(text.trimStart());
+	await writeToLog(`💬 Response:\n\n${cleanText}\n\n`);
+
 	render(state);
 }
 
-function processToolUse(part: Part) {
-	const toolName = (part as ToolPart).tool || "unknown";
-	const toolInput = (part as any).input || "";
+async function processToolUse(part: Part) {
+	const toolPart = part as ToolPart;
+	const toolName = toolPart.tool || "unknown";
+	const toolInput = toolPart.state.input["description"] || toolPart.state.input["filePath"] || {};
 	const toolText = `🔧 ${toolName}: ${toolInput}`;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
@@ -604,6 +676,9 @@ function processToolUse(part: Part) {
 	} else {
 		state.accumulatedResponse.push({ key: part.id, title: "tool", text: toolText });
 	}
+
+	const cleanToolText = stripAnsiCodes(toolText);
+	await writeToLog(`${cleanToolText}\n\n`);
 
 	render(state);
 }
@@ -618,7 +693,7 @@ function processDelta(partID: string, delta: string) {
 	render(state);
 }
 
-function processDiff(diff: FileDiff[]) {
+async function processDiff(diff: FileDiff[]) {
 	let hasChanges = false;
 	const parts: string[] = [];
 	for (const file of diff) {
@@ -642,6 +717,10 @@ function processDiff(diff: FileDiff[]) {
 
 	if (hasChanges) {
 		state.accumulatedResponse.push({ key: "diff", title: "files", text: parts.join("\n") });
+
+		const diffText = stripAnsiCodes(parts.join("\n"));
+		await writeToLog(`${diffText}\n\n`);
+
 		render(state);
 	}
 }
@@ -671,7 +750,7 @@ async function startEventListener(): Promise<void> {
 
 		for await (const event of stream) {
 			try {
-				processEvent(event);
+				await processEvent(event);
 			} catch (error) {
 				console.error(
 					"\n\x1b[31mEvent processing error:\x1b[0m",
@@ -763,6 +842,10 @@ async function sendMessage(sessionID: string, message: string) {
 	state.allEvents = [];
 	state.renderedLinesCount = 0;
 
+	await createLogFile();
+
+	await writeToLog(`User: ${message}\n\n`);
+
 	messageAbortController = new AbortController();
 
 	try {
@@ -790,5 +873,6 @@ async function sendMessage(sessionID: string, message: string) {
 		throw error;
 	} finally {
 		messageAbortController = null;
+		await closeLogFile();
 	}
 }
