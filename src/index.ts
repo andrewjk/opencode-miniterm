@@ -843,7 +843,7 @@ function findNextWordBoundary(text: string, pos: number): number {
 // LOGGING
 // ====================
 
-function getLogDir(): string {
+export function getLogDir(): string {
 	const homeDir = process.env.HOME || process.env.USERPROFILE || "";
 	return `${homeDir}/.local/share/opencode-miniterm/log`;
 }

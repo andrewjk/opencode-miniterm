@@ -1,10 +1,12 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
-import type { State } from "../index";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+import { type State, getLogDir } from "../index";
 import type { Command } from "../types";
 
 let command: Command = {
 	name: "/debug",
-	description: "Show raw events from the last request",
+	description: "Save raw events from the last request to a JSON file",
 	run,
 	running: false,
 };
@@ -12,19 +14,47 @@ let command: Command = {
 export default command;
 
 function run(_client: OpencodeClient, state: State): void {
-	console.log("\n🔧 Debug: All parts from the most recent request");
-	console.log("=".repeat(50));
-
 	if (state.allEvents.length === 0) {
 		console.log("No parts stored yet. Send a message first.");
-	} else {
-		for (let part of state.allEvents) {
-			stripLongStrings(part);
-		}
-		console.log(JSON.stringify(state.allEvents, null, 2));
+		return;
 	}
 
-	console.log("\n" + "=".repeat(50));
+	// Create a copy of events to modify
+	const eventsCopy = JSON.parse(JSON.stringify(state.allEvents));
+
+	for (let part of eventsCopy) {
+		stripLongStrings(part);
+	}
+
+	// Create debug data with metadata
+	const debugData = {
+		timestamp: new Date().toISOString(),
+		sessionID: state.sessionID,
+		events: eventsCopy,
+		metadata: {
+			command: "/debug",
+			version: "1.0",
+			totalEvents: eventsCopy.length,
+		},
+	};
+
+	// Ensure log dir exists
+	const logDir = getLogDir();
+	mkdirSync(logDir, { recursive: true });
+
+	// Create filename with timestamp
+	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const filename = `debug-${timestamp}.json`;
+	const filepath = join(logDir, filename);
+
+	try {
+		// Write to JSON file
+		writeFileSync(filepath, JSON.stringify(debugData, null, 2));
+		console.log(`✅ Debug data saved in ${logDir}`);
+	} catch (error) {
+		console.error(`❌ Failed to save debug data: ${error}`);
+	}
+
 	console.log();
 }
 
