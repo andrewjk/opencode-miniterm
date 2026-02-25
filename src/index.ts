@@ -167,7 +167,10 @@ async function main() {
 			const atMatch = text.match(/(@[^\s]*)$/);
 			if (atMatch) {
 				const prefix = atMatch[0]!;
-				const pattern = prefix.slice(1) + "*";
+				const searchPattern = prefix.slice(1);
+				const pattern = searchPattern.includes("/")
+					? searchPattern + "*"
+					: "**/" + searchPattern + "*";
 				const files = await getFileCompletions(pattern);
 				return files.map((file: string) => text.replace(/@[^\s]*$/, "@" + file));
 			}
