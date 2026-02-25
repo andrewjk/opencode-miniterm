@@ -542,6 +542,8 @@ async function sendMessage(sessionID: string, message: string) {
 
 	messageAbortController = new AbortController();
 
+	const requestStartTime = Date.now();
+
 	try {
 		const result = await client.session.prompt({
 			path: { id: sessionID },
@@ -563,7 +565,16 @@ async function sendMessage(sessionID: string, message: string) {
 
 		// Play a chime when request is completed
 		process.stdout.write("\x07");
-		writePrompt();
+
+		setTimeout(() => {
+			stopAnimation();
+
+			const duration = Date.now() - requestStartTime;
+			const durationText = formatDuration(duration);
+			console.log(`${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
+
+			writePrompt();
+		}, 100);
 	} catch (error: any) {
 		if (error.name === "AbortError" || messageAbortController?.signal.aborted) {
 			throw new Error("Request cancelled");
@@ -885,6 +896,24 @@ function findNextWordBoundary(text: string, pos: number): number {
 	}
 
 	return newPos;
+}
+
+function formatDuration(ms: number): string {
+	if (ms < 1000) {
+		return `${ms}ms`;
+	}
+	const seconds = ms / 1000;
+	if (seconds < 60) {
+		return `${seconds.toFixed(1)}s`;
+	}
+	const minutes = Math.floor(seconds / 60);
+	const remainingSeconds = Math.round(seconds % 60);
+	if (minutes < 60) {
+		return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+	}
+	const hours = Math.floor(minutes / 60);
+	const remainingMinutes = minutes % 60;
+	return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
 // ====================
