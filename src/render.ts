@@ -18,6 +18,7 @@ export function render(state: State, details = false): void {
 	// Only show the last files part between parts
 	let foundPart = false;
 	let foundFiles = false;
+	let foundTodo = false;
 	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
 		const part = state.accumulatedResponse[i]!;
 		if (details) {
@@ -33,6 +34,9 @@ export function render(state: State, details = false): void {
 		} else if (part.title === "files") {
 			part.active = !foundFiles;
 			foundFiles = true;
+		} else if (part.title === "todo") {
+			part.active = !foundTodo;
+			foundTodo = true;
 		} else {
 			foundPart = true;
 			part.active = true;
@@ -41,7 +45,8 @@ export function render(state: State, details = false): void {
 
 	for (let i = 0; i < state.accumulatedResponse.length; i++) {
 		const part = state.accumulatedResponse[i];
-		if (!part || !part.active || !part.text.trim()) continue;
+		if (!part || !part.active) continue;
+		if (!part.text.trim()) continue;
 
 		if (part.title === "thinking") {
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
@@ -51,16 +56,10 @@ export function render(state: State, details = false): void {
 			const partText = renderToConsole(doc);
 			output += `💬 Response:\n\n${partText}\n\n`;
 		} else if (part.title === "tool") {
-			const toolText = part.text;
-			const colonIndex = toolText.indexOf(":");
-			if (colonIndex !== -1) {
-				const prefix = toolText.slice(0, colonIndex + 1);
-				const suffix = toolText.slice(colonIndex + 1);
-				output += `${prefix} ${ansi.BRIGHT_BLACK}${suffix}${ansi.RESET}\n\n`;
-			} else {
-				output += toolText + "\n\n";
-			}
+			output += part.text + "\n\n";
 		} else if (part.title === "files") {
+			output += part.text + "\n\n";
+		} else if (part.title === "todo") {
 			output += part.text + "\n\n";
 		}
 	}

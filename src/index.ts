@@ -1,5 +1,14 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
-import type { Agent, Event, FileDiff, Message, Part, Session, ToolPart } from "@opencode-ai/sdk";
+import type {
+	Agent,
+	Event,
+	FileDiff,
+	Message,
+	Part,
+	Session,
+	Todo,
+	ToolPart,
+} from "@opencode-ai/sdk";
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { glob } from "node:fs/promises";
@@ -55,7 +64,7 @@ let messageAbortController: AbortController | null = null;
 
 interface AccumulatedPart {
 	key: string;
-	title: string;
+	title: "thinking" | "response" | "tool" | "files" | "todo";
 	text: string;
 	active?: boolean;
 	durationMs?: number;
@@ -554,6 +563,7 @@ async function sendMessage(sessionID: string, message: string) {
 
 		// Play a chime when request is completed
 		process.stdout.write("\x07");
+		writePrompt();
 	} catch (error: any) {
 		if (error.name === "AbortError" || messageAbortController?.signal.aborted) {
 			throw new Error("Request cancelled");
@@ -657,10 +667,19 @@ async function processEvent(event: Event): Promise<void> {
 			break;
 
 		case "session.updated": {
-			const session = (event.properties as any).info as Session | undefined;
+			const session = event.properties.info;
 			if (session && session.id === state.sessionID && session.title) {
 				setTerminalTitle(session.title);
 			}
+			break;
+		}
+
+		case "todo.updated": {
+			const todos = event.properties.todos;
+			if (todos) {
+				await processTodos(todos);
+			}
+
 			break;
 		}
 
@@ -738,7 +757,7 @@ async function processToolUse(part: Part) {
 	const toolPart = part as ToolPart;
 	const toolName = toolPart.tool || "unknown";
 	const toolInput = toolPart.state.input["description"] || toolPart.state.input["filePath"] || {};
-	const toolText = `🔧 ${toolName}: ${toolInput}`;
+	const toolText = `🔧 ${toolName}: ${ansi.BRIGHT_BLACK}${toolInput}${ansi.RESET}`;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
 		state.accumulatedResponse[state.accumulatedResponse.length - 1]!.text = toolText;
@@ -791,6 +810,32 @@ async function processDiff(diff: FileDiff[]) {
 
 		render(state);
 	}
+}
+
+async function processTodos(todos: Todo[]) {
+	let todoListText = "Todo:\n";
+
+	for (let todo of todos) {
+		let todoText = "";
+		if (todo.status === "completed") {
+			todoText += ansi.STRIKETHROUGH;
+			todoText += "- [✓] ";
+		} else {
+			todoText += "- [ ] ";
+		}
+		todoText += todo.content;
+		if (todo.status === "completed") {
+			todoText += ansi.RESET;
+		}
+		todoListText += todoText + "\n";
+	}
+
+	state.accumulatedResponse.push({ key: "todo", title: "files", text: todoListText });
+
+	const cleanTodoText = ansi.stripAnsiCodes(todoListText);
+	await writeToLog(`${cleanTodoText}\n\n`);
+
+	render(state);
 }
 
 function findLastPart(title: string) {

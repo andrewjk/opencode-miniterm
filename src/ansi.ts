@@ -14,6 +14,7 @@ export const GREEN = "\x1b[32m";
 export const BLUE = "\x1b[34m";
 export const CYAN = "\x1b[36m";
 export const BOLD_MAGENTA = "\x1b[1;35m";
+export const STRIKETHROUGH = "\x1b[9m";
 export const ANSI_CODE_PATTERN = /^\x1b\[[0-9;]*m/;
 
 export function stripAnsiCodes(str: string): string {
