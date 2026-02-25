@@ -1,6 +1,7 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { config, saveConfig } from "../config";
 import type { State } from "../index";
+import { updateSessionTitle } from "../index";
 import { getActiveDisplay } from "../render";
 import type { Command } from "../types";
 
@@ -17,6 +18,8 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 	state.sessionID = await createSession(client);
 	config.sessionID = state.sessionID;
 	saveConfig();
+
+	await updateSessionTitle();
 
 	const activeDisplay = await getActiveDisplay(client);
 	console.log(activeDisplay);

@@ -70,6 +70,8 @@ export interface State {
 	lastFileAfter: Map<string, string>;
 }
 
+export { updateSessionTitle, setTerminalTitle };
+
 let state: State = {
 	sessionID: "",
 	renderedLinesCount: 0,
@@ -114,6 +116,8 @@ async function main() {
 		}
 
 		startEventListener();
+
+		await updateSessionTitle();
 
 		const activeDisplay = await getActiveDisplay(client);
 
@@ -473,6 +477,21 @@ async function validateSession(sessionID: string): Promise<boolean> {
 	}
 }
 
+async function updateSessionTitle(): Promise<void> {
+	try {
+		const result = await client.session.get({
+			path: { id: state.sessionID },
+		});
+		if (!result.error && result.data?.title) {
+			setTerminalTitle(result.data.title);
+		} else {
+			setTerminalTitle(state.sessionID.substring(0, 8));
+		}
+	} catch {
+		setTerminalTitle(state.sessionID.substring(0, 8));
+	}
+}
+
 async function startEventListener(): Promise<void> {
 	try {
 		const { stream } = await client.event.subscribe({
@@ -634,6 +653,14 @@ async function processEvent(event: Event): Promise<void> {
 			}
 			break;
 
+		case "session.updated": {
+			const session = (event.properties as any).info as Session | undefined;
+			if (session && session.id === state.sessionID && session.title) {
+				setTerminalTitle(session.title);
+			}
+			break;
+		}
+
 		default:
 			break;
 	}
@@ -775,6 +802,10 @@ function findLastPart(title: string) {
 // ====================
 // USER INTERFACE
 // ====================
+
+function setTerminalTitle(sessionName: string): void {
+	process.stdout.write(`\x1b]0;OC | ${sessionName}\x07`);
+}
 
 function findPreviousWordBoundary(text: string, pos: number): number {
 	if (pos <= 0) return 0;

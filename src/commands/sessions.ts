@@ -2,6 +2,7 @@ import type { OpencodeClient, Session } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
 import type { State } from "../index";
+import { updateSessionTitle } from "../index";
 import { writePrompt } from "../render";
 import type { Command } from "../types";
 
@@ -46,6 +47,7 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 		config.sessionID = state.sessionID;
 		saveConfig();
 		console.log(`Created new session: ${state.sessionID}...\n`);
+		await updateSessionTitle();
 		return;
 	}
 
@@ -140,6 +142,7 @@ async function handleKey(_client: OpencodeClient, key: Key, str?: string) {
 					console.log(`  Title: ${selected.title}`);
 				}
 				console.log();
+				await updateSessionTitle();
 			}
 			writePrompt();
 			return;
