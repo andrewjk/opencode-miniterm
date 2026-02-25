@@ -18,7 +18,8 @@ export function render(state: State, details = false): void {
 	let foundFiles = false;
 	let foundTodo = false;
 	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
-		const part = state.accumulatedResponse[i]!;
+		const part = state.accumulatedResponse[i];
+		if (!part) continue;
 		if (details) {
 			part.active = true;
 			continue;
@@ -48,11 +49,11 @@ export function render(state: State, details = false): void {
 
 		if (part.title === "thinking") {
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
-			output += `💭 ${ansi.BRIGHT_BLACK}Thinking...\n\n${partText}${ansi.RESET}\n\n`;
+			output += `💭 ${ansi.BRIGHT_BLACK}${partText}${ansi.RESET}\n\n`;
 		} else if (part.title === "response") {
 			const doc = parse(part.text.trimStart(), gfm);
 			const partText = renderToConsole(doc);
-			output += `💬 Response:\n\n${partText}\n\n`;
+			output += `💬 ${partText}\n\n`;
 		} else if (part.title === "tool") {
 			output += part.text + "\n\n";
 		} else if (part.title === "files") {

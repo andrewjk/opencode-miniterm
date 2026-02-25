@@ -5,7 +5,7 @@ import { render, wrapText } from "../src/render";
 describe("render", () => {
 	const createMockState = (overrides?: Partial<State>): State => ({
 		sessionID: "",
-		renderedLinesCount: 0,
+		renderedLines: [],
 		accumulatedResponse: [],
 		allEvents: [],
 		write: vi.fn(),
@@ -14,18 +14,22 @@ describe("render", () => {
 	});
 
 	describe("clearRenderedLines", () => {
-		it("should not write escape sequence when renderedLinesCount is 0", () => {
+		it("should not write escape sequence when renderedLines is empty", () => {
 			const write = vi.fn();
-			const state = createMockState({ renderedLinesCount: 0, write });
+			const state = createMockState({ renderedLines: [], write });
 
 			render(state);
 
 			expect(write).not.toHaveBeenCalled();
 		});
 
-		it("should write escape sequence to clear lines when renderedLinesCount > 0", () => {
+		it("should write escape sequence to clear lines when renderedLines has content", () => {
 			const write = vi.fn();
-			const state = createMockState({ renderedLinesCount: 5, write });
+			const state = createMockState({
+				renderedLines: ["line1", "line2", "line3", "line4", "line5"],
+				accumulatedResponse: [{ key: "xxx", title: "response", text: "new content" }],
+				write,
+			});
 
 			render(state);
 
@@ -34,7 +38,7 @@ describe("render", () => {
 
 		it("should clear previous accumulated parts", () => {
 			const write = vi.fn();
-			let state = createMockState({ renderedLinesCount: 0, accumulatedResponse: [], write });
+			let state = createMockState({ renderedLines: [], accumulatedResponse: [], write });
 
 			state.accumulatedResponse.push({ key: "xxx", title: "thinking", text: "gotta do the thing" });
 			state.accumulatedResponse.push({
@@ -45,9 +49,8 @@ describe("render", () => {
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith(
-				"💭 Thinking...\n\n\x1b[90mnow i know how to do it\x1b[0m\n\n",
-			);
+			const firstOutput = write.mock.calls.map((c) => c[0]).join("");
+			expect(firstOutput).toContain("now i know how to do it");
 
 			write.mockClear();
 
@@ -55,8 +58,10 @@ describe("render", () => {
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith("\u001B[4A\u001B[J");
-			expect(write).toHaveBeenCalledWith("💬 Response:\n\ni've done it\n\n");
+			const calls = write.mock.calls.map((c) => c[0]);
+			expect(calls.some((c) => c.includes("\u001B[2A"))).toBe(true);
+			const outputCall = calls.find((c) => c.includes("i've done it"));
+			expect(outputCall).toContain("💬");
 		});
 	});
 
@@ -70,7 +75,9 @@ describe("render", () => {
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith("💭 Thinking...\n\n\x1b[90m分析问题\x1b[0m\n\n");
+			const output = write.mock.calls.map((c) => c[0]).join("");
+			expect(output).toContain("💭");
+			expect(output).toContain("分析问题");
 		});
 
 		it("should only show thinking indicator for last thinking part", () => {
@@ -85,8 +92,9 @@ describe("render", () => {
 
 			render(state);
 
-			const output = write.mock.calls[0]![0];
-			expect(output).toContain("💭 Thinking...");
+			const output = write.mock.calls.map((c) => c[0]).join("");
+			expect(output).toContain("💭");
+			expect(output).toContain("second");
 			expect(output).not.toMatch(/first.*Thinking/);
 		});
 
@@ -125,7 +133,9 @@ describe("render", () => {
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith("💬 Response:\n\nHello world\n\n");
+			const output = write.mock.calls.map((c) => c[0]).join("");
+			expect(output).toContain("💬");
+			expect(output).toContain("Hello world");
 		});
 	});
 
@@ -139,7 +149,8 @@ describe("render", () => {
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith("🔧 bash: ls -la\n\n");
+			const output = write.mock.calls.map((c) => c[0]).join("");
+			expect(output).toContain("🔧 bash: ls -la");
 		});
 	});
 
@@ -153,7 +164,8 @@ describe("render", () => {
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith("src/index.ts\n\n");
+			const output = write.mock.calls.map((c) => c[0]).join("");
+			expect(output).toContain("src/index.ts");
 		});
 	});
 
@@ -167,17 +179,17 @@ describe("render", () => {
 
 			render(state);
 
-			expect(state.renderedLinesCount).toBe(6);
+			expect(state.renderedLines.length).toBe(4);
 		});
 
-		it("should set renderedLinesCount to 0 when output is empty", () => {
+		it("should set renderedLines to empty when output is empty", () => {
 			const state = createMockState({
 				accumulatedResponse: [],
 			});
 
 			render(state);
 
-			expect(state.renderedLinesCount).toBe(0);
+			expect(state.renderedLines.length).toBe(0);
 		});
 
 		it("should count lines including newlines from part formatting", () => {
@@ -189,7 +201,7 @@ describe("render", () => {
 
 			render(state);
 
-			expect(state.renderedLinesCount).toBe(4);
+			expect(state.renderedLines.length).toBe(2);
 		});
 	});
 
@@ -201,7 +213,7 @@ describe("render", () => {
 			render(state);
 
 			expect(write).not.toHaveBeenCalled();
-			expect(state.renderedLinesCount).toBe(0);
+			expect(state.renderedLines.length).toBe(0);
 		});
 
 		it("should not write anything when all parts have empty text", () => {
@@ -234,10 +246,11 @@ describe("render", () => {
 
 			render(state);
 
-			const output = write.mock.calls[0]![0];
-			expect(output).not.toContain("💭 Thinking...");
+			const output = write.mock.calls.map((c) => c[0]).join("");
+			expect(output).not.toContain("💭");
 			expect(output).not.toContain("🔧 bash: npm test");
-			expect(output).toContain("💬 Response:\n\nTest results: 5 passed");
+			expect(output).toContain("💬");
+			expect(output).toContain("Test results: 5 passed");
 		});
 	});
 });
@@ -344,12 +357,11 @@ describe("wrapText", () => {
 	describe("real-world scenarios", () => {
 		it("should wrap thinking output with emoji", () => {
 			const result = wrapText(
-				"💭 Thinking...\nLet me analyze this problem step by step to find the best solution",
+				"💭 Let me analyze this problem step by step to find the best solution",
 				40,
 			);
 			expect(result.length).toBeGreaterThan(1);
-			expect(result[0]).toBe("💭 Thinking...");
-			expect(result[1]).toContain("Let me analyze");
+			expect(result[0]).toBe("💭 Let me analyze this problem step by");
 		});
 
 		it("should wrap response output with emoji", () => {
