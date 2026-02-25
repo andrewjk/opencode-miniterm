@@ -1,16 +1,7 @@
 #!/usr/bin/env bun
 
 import { createOpencodeClient } from "@opencode-ai/sdk";
-import type {
-	Agent,
-	Event,
-	FileDiff,
-	Message,
-	Part,
-	Session,
-	Todo,
-	ToolPart,
-} from "@opencode-ai/sdk";
+import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { glob } from "node:fs/promises";
@@ -62,7 +53,6 @@ let client: ReturnType<typeof createOpencodeClient>;
 
 let processing = true;
 let retryInterval: ReturnType<typeof setInterval> | null = null;
-let messageAbortController: AbortController | null = null;
 
 interface AccumulatedPart {
 	key: string;
@@ -339,21 +329,13 @@ async function main() {
 					return;
 				}
 				case "escape": {
-					if (messageAbortController) {
-						messageAbortController.abort();
-						stopAnimation();
-						process.stdout.write(ansi.CURSOR_SHOW);
-						process.stdout.write(`\r${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
-					} else {
-						inputBuffer = "";
-						cursorPosition = 0;
-						showCompletions = false;
-						completionCycling = false;
-						completions = [];
-						readline.cursorTo(process.stdout, 0);
-						readline.clearScreenDown(process.stdout);
-						writePrompt();
+					if (state.sessionID) {
+						client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
 					}
+					stopAnimation();
+					process.stdout.write(ansi.CURSOR_SHOW);
+					process.stdout.write(`\r${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
+					writePrompt();
 					return;
 				}
 				case "return": {
@@ -542,8 +524,6 @@ async function sendMessage(sessionID: string, message: string) {
 
 	await writeToLog(`User: ${message}\n\n`);
 
-	messageAbortController = new AbortController();
-
 	const requestStartTime = Date.now();
 
 	try {
@@ -556,7 +536,6 @@ async function sendMessage(sessionID: string, message: string) {
 				},
 				parts: [{ type: "text", text: message }],
 			},
-			signal: messageAbortController.signal,
 		});
 
 		if (result.error) {
@@ -568,22 +547,21 @@ async function sendMessage(sessionID: string, message: string) {
 		// Play a chime when request is completed
 		process.stdout.write("\x07");
 
+		stopAnimation();
+
+		const duration = Date.now() - requestStartTime;
+		const durationText = formatDuration(duration);
+		console.log(`${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
+
+		writePrompt();
+
+		// HACK:
 		setTimeout(() => {
-			stopAnimation();
-
-			const duration = Date.now() - requestStartTime;
-			const durationText = formatDuration(duration);
-			console.log(`${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
-
-			writePrompt();
-		}, 100);
+			readline.cursorTo(process.stdout, 2);
+		}, 200);
 	} catch (error: any) {
-		if (error.name === "AbortError" || messageAbortController?.signal.aborted) {
-			throw new Error("Request cancelled");
-		}
 		throw error;
 	} finally {
-		messageAbortController = null;
 		await closeLogFile();
 	}
 }
