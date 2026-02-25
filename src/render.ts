@@ -1,4 +1,5 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
+import * as ansi from "./ansi";
 import { config } from "./config";
 import type { State } from "./index";
 
@@ -43,7 +44,7 @@ export function render(state: State, details = false): void {
 
 		if (part.title === "thinking") {
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
-			output += `💭 \x1b[90mThinking...\n\n${partText}\x1b[0m\n\n`;
+			output += `💭 ${ansi.BRIGHT_BLACK}Thinking...\n\n${partText}${ansi.RESET}\n\n`;
 		} else if (part.title === "response") {
 			output += `💬 Response:\n\n${part.text.trimStart()}\n\n`;
 		} else if (part.title === "tool") {
@@ -70,7 +71,7 @@ export function render(state: State, details = false): void {
 
 function lastThinkingLines(text: string): string {
 	const consoleWidth = process.stdout.columns || 80;
-	const strippedText = stripAnsiCodes(text);
+	const strippedText = ansi.stripAnsiCodes(text);
 
 	let lineCount = 0;
 	let col = 0;
@@ -105,15 +106,15 @@ function lastThinkingLines(text: string): string {
 
 function clearRenderedLines(state: State): void {
 	if (state.renderedLinesCount > 0) {
-		state.write(`\x1b[${state.renderedLinesCount}A\x1b[J`);
-		state.write("\x1b[0G");
+		state.write(`${ansi.CURSOR_UP(state.renderedLinesCount)}\x1b[J`);
+		state.write(ansi.CURSOR_HOME);
 		state.renderedLinesCount = 0;
 	}
 }
 
 function countRenderedLines(state: State, output: string): void {
 	const consoleWidth = process.stdout.columns || 80;
-	const strippedOutput = stripAnsiCodes(output);
+	const strippedOutput = ansi.stripAnsiCodes(output);
 
 	let lineCount = 0;
 	let col = 0;
@@ -186,7 +187,7 @@ export function wrapText(text: string, width: number): string[] {
 				while (w < word.length && segmentVisible < wordWidth) {
 					const char = word[w];
 					if (char === "\x1b" && word[w + 1] === "[") {
-						const ansiMatch = word.slice(w).match(/^\x1b\[[0-9;]*m/);
+						const ansiMatch = word.slice(w).match(ansi.ANSI_CODE_PATTERN);
 						if (ansiMatch) {
 							segment += ansiMatch[0];
 							w += ansiMatch[0].length;
@@ -231,7 +232,7 @@ export function wrapText(text: string, width: number): string[] {
 				if (char === "\n" || char === "\r" || char === " " || char === "\t") {
 					break;
 				} else if (char === "\x1b" && text[i + 1] === "[") {
-					const ansiMatch = text.slice(i).match(/^\x1b\[[0-9;]*m/);
+					const ansiMatch = text.slice(i).match(ansi.ANSI_CODE_PATTERN);
 					if (ansiMatch) {
 						word += ansiMatch[0];
 						i += ansiMatch[0].length;
@@ -257,14 +258,10 @@ export function wrapText(text: string, width: number): string[] {
 	return lines;
 }
 
-function stripAnsiCodes(str: string): string {
-	return str.replace(/\x1b\[[0-9;]*m/g, "");
-}
-
-export function writePrompt() {
+export function writePrompt(): void {
 	stopAnimation();
-	process.stdout.write("\x1b[?25h");
-	process.stdout.write("\x1b[1;35m# \x1b[0m");
+	process.stdout.write(ansi.CURSOR_SHOW);
+	process.stdout.write(`${ansi.BOLD_MAGENTA}# ${ansi.RESET}`);
 }
 
 const ANIMATION_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"];
@@ -275,8 +272,8 @@ export function startAnimation(): void {
 
 	let index = 0;
 	animationInterval = setInterval(() => {
-		process.stdout.write("\r\x1b[1;35m");
-		process.stdout.write(`${ANIMATION_CHARS[index]}\x1b[0m`);
+		process.stdout.write(`\r${ansi.BOLD_MAGENTA}`);
+		process.stdout.write(`${ANIMATION_CHARS[index]}${ansi.RESET}`);
 		index = (index + 1) % ANIMATION_CHARS.length;
 	}, 100);
 }
@@ -286,7 +283,7 @@ export function stopAnimation(): void {
 		clearInterval(animationInterval);
 		animationInterval = null;
 	}
-	process.stdout.write("\r\x1b[K");
+	process.stdout.write(`\r${ansi.CLEAR_LINE}`);
 }
 
 export async function getActiveDisplay(client: OpencodeClient): Promise<string> {
@@ -323,12 +320,12 @@ export async function getActiveDisplay(client: OpencodeClient): Promise<string> 
 
 	const parts: string[] = [];
 	if (agentName) {
-		parts.push(`\x1b[36m${agentName}\x1b[0m`);
+		parts.push(`${ansi.CYAN}${agentName}${ansi.RESET}`);
 	}
 	if (modelName) {
-		let modelPart = `\x1b[97m${modelName}\x1b[0m`;
+		let modelPart = `${ansi.BRIGHT_WHITE}${modelName}${ansi.RESET}`;
 		if (providerName) {
-			modelPart += ` \x1b[90m(${providerName})\x1b[0m`;
+			modelPart += ` ${ansi.BRIGHT_BLACK}(${providerName})${ansi.RESET}`;
 		}
 		parts.push(modelPart);
 	}

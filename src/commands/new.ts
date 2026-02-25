@@ -13,7 +13,7 @@ let command: Command = {
 
 export default command;
 
-async function run(client: OpencodeClient, state: State) {
+async function run(client: OpencodeClient, state: State): Promise<void> {
 	state.sessionID = await createSession(client);
 	config.sessionID = state.sessionID;
 	saveConfig();

@@ -1,5 +1,4 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
-import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
 import type { State } from "../index";
 import { writePrompt } from "../render";
@@ -14,11 +13,11 @@ let command: Command = {
 
 export default command;
 
-async function run(client: OpencodeClient, _state: State): Promise<void> {
+async function run(_client: OpencodeClient, _state: State): Promise<void> {
 	if (!config.sessionID) return;
 
 	console.log("Running /init command (analyzing project and creating AGENTS.md)...");
-	const result = await client.session.init({
+	const result = await _client.session.init({
 		path: { id: config.sessionID },
 	});
 

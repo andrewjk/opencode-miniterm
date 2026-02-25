@@ -27,7 +27,7 @@ export function loadConfig(): void {
 			const parsed = JSON.parse(content) as Partial<Config>;
 			Object.assign(config, parsed);
 		} catch (e) {
-			console.error("Failed to parse config from env var:", e);
+			console.error("Failed to parse config from env var:", e instanceof Error ? e.message : e);
 		}
 	} else {
 		if (existsSync(CONFIG_PATH)) {
@@ -36,7 +36,7 @@ export function loadConfig(): void {
 				const parsed = JSON.parse(fileContent) as Partial<Config>;
 				Object.assign(config, parsed);
 			} catch (e) {
-				console.error("Failed to parse config from file:", e);
+				console.error("Failed to parse config from file:", e instanceof Error ? e.message : e);
 			}
 		}
 	}
@@ -51,6 +51,6 @@ export function saveConfig(): void {
 	try {
 		writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), "utf-8");
 	} catch (e) {
-		console.error("Failed to save config to file:", e);
+		console.error("Failed to save config to file:", e instanceof Error ? e.message : e);
 	}
 }

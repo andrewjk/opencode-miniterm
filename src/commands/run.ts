@@ -12,7 +12,7 @@ let command: Command = {
 
 export default command;
 
-async function run(_client: OpencodeClient, _state: State, input?: string) {
+async function run(_client: OpencodeClient, _state: State, input?: string): Promise<void> {
 	if (!input) return;
 
 	const child = spawn(input, [], { shell: true });

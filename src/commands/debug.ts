@@ -11,7 +11,7 @@ let command: Command = {
 
 export default command;
 
-function run(client: OpencodeClient, state: State): void {
+function run(_client: OpencodeClient, state: State): void {
 	console.log("\n🔧 Debug: All parts from the most recent request");
 	console.log("=".repeat(50));
 
@@ -28,16 +28,16 @@ function run(client: OpencodeClient, state: State): void {
 	console.log();
 }
 
-function stripLongStrings(target: Record<PropertyKey, any>) {
+function stripLongStrings(target: Record<PropertyKey, unknown>): void {
 	for (const prop in target) {
 		if (prop !== "text" && prop !== "delta") {
-			let value = target[prop];
+			const value = target[prop];
 			if (typeof value === "string") {
 				if (value.length > 255) {
 					target[prop] = value.substring(0, 252) + "...";
 				}
-			} else if (typeof value === "object") {
-				stripLongStrings(value);
+			} else if (typeof value === "object" && value !== null) {
+				stripLongStrings(value as Record<PropertyKey, unknown>);
 			}
 		}
 	}

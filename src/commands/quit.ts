@@ -11,7 +11,7 @@ let command: Command = {
 
 export default command;
 
-async function run(_client: OpencodeClient, _state: State) {
+async function run(_client: OpencodeClient, _state: State): Promise<void> {
 	console.log(`\x1b[90mGoodbye!\x1b[0m`);
 	process.exit(0);
 }

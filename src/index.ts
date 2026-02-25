@@ -6,6 +6,7 @@ import { glob } from "node:fs/promises";
 import { stat } from "node:fs/promises";
 import { open } from "node:fs/promises";
 import readline from "node:readline";
+import * as ansi from "./ansi";
 import agentsCommand from "./commands/agents";
 import debugCommand from "./commands/debug";
 import detailsCommand from "./commands/details";
@@ -116,14 +117,14 @@ async function main() {
 
 		const activeDisplay = await getActiveDisplay(client);
 
-		process.stdout.write(`\x1b[${2}A\x1b[0J`);
-		process.stdout.write("\x1b[0G");
+		process.stdout.write(`${ansi.CLEAR_SCREEN_UP}${ansi.CLEAR_FROM_CURSOR}`);
+		process.stdout.write(ansi.CURSOR_HOME);
 		console.log(activeDisplay);
 		if (!isNewSession) {
 			console.log("Resumed last session");
 		}
 		console.log();
-		console.log("\x1b[90mAsk anything...\x1b[0m\n");
+		console.log(`${ansi.BRIGHT_BLACK}Ask anything...${ansi.RESET}\n`);
 
 		const rl = readline.createInterface({
 			input: process.stdin,
@@ -241,7 +242,7 @@ async function main() {
 						for (const cmd of SLASH_COMMANDS) {
 							const padding = " ".repeat(maxCommandLength - cmd.name.length + 2);
 							console.log(
-								`  \x1b[97m${cmd.name}\x1b[0m${padding}\x1b[90m${cmd.description}\x1b[0m`,
+								`  ${ansi.BRIGHT_WHITE}${cmd.name}${ansi.RESET}${padding}${ansi.BRIGHT_BLACK}${cmd.description}${ansi.RESET}`,
 							);
 						}
 						console.log();
@@ -261,10 +262,10 @@ async function main() {
 						return;
 					}
 
-					process.stdout.write("\x1b[?25l");
+					process.stdout.write(ansi.CURSOR_HIDE);
 					startAnimation();
 					if (isLoggingEnabled()) {
-						console.log(`📝 \x1b[90mLogging to ${getLogDir()}\n\x1b[0m`);
+						console.log(`📝 ${ansi.BRIGHT_BLACK}Logging to ${getLogDir()}\n${ansi.RESET}`);
 					}
 					await sendMessage(state.sessionID, input);
 				} catch (error: any) {
@@ -326,8 +327,8 @@ async function main() {
 					if (messageAbortController) {
 						messageAbortController.abort();
 						stopAnimation();
-						process.stdout.write("\x1b[?25h");
-						process.stdout.write("\r\x1b[90mCancelled request\x1b[0m\n");
+						process.stdout.write(ansi.CURSOR_SHOW);
+						process.stdout.write(`\r${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
 					} else {
 						inputBuffer = "";
 						cursorPosition = 0;
@@ -411,14 +412,14 @@ async function startOpenCodeServer() {
 
 	let started = false;
 
-	console.log("\n\x1b[90mStarting OpenCode server...\x1b[0m\n");
+	console.log(`\n${ansi.BRIGHT_BLACK}Starting OpenCode server...${ansi.RESET}\n`);
 
 	serverProcess.stdout.on("data", (data) => {
 		if (!started) {
-			process.stdout.write(`\x1b[${2}A\x1b[0J`);
-			process.stdout.write("\x1b[0G");
+			process.stdout.write(`${ansi.CLEAR_SCREEN_UP}${ansi.CLEAR_FROM_CURSOR}`);
+			process.stdout.write(ansi.CURSOR_HOME);
 			started = true;
-			console.log("\x1b[90mServer started, connecting...\x1b[0m\n");
+			console.log(`${ansi.BRIGHT_BLACK}Server started, connecting...${ansi.RESET}\n`);
 		}
 	});
 
@@ -477,7 +478,7 @@ async function startEventListener(): Promise<void> {
 		const { stream } = await client.event.subscribe({
 			onSseError: (error) => {
 				console.error(
-					"\n\x1b[31mConnection error:\x1b[0m",
+					`\n${ansi.RED}Connection error:${ansi.RESET}`,
 					error instanceof Error ? error.message : String(error),
 				);
 			},
@@ -488,14 +489,14 @@ async function startEventListener(): Promise<void> {
 				await processEvent(event);
 			} catch (error) {
 				console.error(
-					"\n\x1b[31mEvent processing error:\x1b[0m",
+					`\n${ansi.RED}Event processing error:${ansi.RESET}`,
 					error instanceof Error ? error.message : String(error),
 				);
 			}
 		}
 	} catch (error) {
 		console.error(
-			"\n\x1b[31mFailed to connect to event stream:\x1b[0m",
+			`\n${ansi.RED}Failed to connect to event stream:${ansi.RESET}`,
 			error instanceof Error ? error.message : String(error),
 		);
 	}
@@ -591,7 +592,7 @@ async function processEvent(event: Event): Promise<void> {
 		case "session.status":
 			if (event.type === "session.status" && event.properties.status.type === "idle") {
 				stopAnimation();
-				process.stdout.write("\x1b[?25h");
+				process.stdout.write(ansi.CURSOR_SHOW);
 				if (retryInterval) {
 					clearInterval(retryInterval);
 					retryInterval = null;
@@ -603,8 +604,8 @@ async function processEvent(event: Event): Promise<void> {
 				const message = event.properties.status.message;
 				const retryTime = event.properties.status.next;
 				const sessionID = event.properties.sessionID;
-				console.error(`\n\x1b[31mError:\x1b[0m ${message}`);
-				console.error(`\x1b[90mSession:\x1b[0m ${sessionID}`);
+				console.error(`\n${ansi.RED}Error:${ansi.RESET} ${message}`);
+				console.error(`${ansi.BRIGHT_BLACK}Session:${ansi.RESET} ${sessionID}`);
 				if (retryTime) {
 					if (retryInterval) {
 						clearInterval(retryInterval);
@@ -612,12 +613,14 @@ async function processEvent(event: Event): Promise<void> {
 					const retryDate = new Date(retryTime);
 
 					let lastSeconds = Math.max(0, Math.ceil((retryDate.getTime() - Date.now()) / 1000));
-					console.error(`\x1b[90mRetrying in ${lastSeconds}s...\x1b[0m`);
+					console.error(`${ansi.BRIGHT_BLACK}Retrying in ${lastSeconds}s...${ansi.RESET}`);
 
 					retryInterval = setInterval(() => {
 						const remaining = Math.max(0, Math.ceil((retryDate.getTime() - Date.now()) / 1000));
 						if (remaining !== lastSeconds) {
-							process.stdout.write(`\r\x1b[90mRetrying in ${remaining}s...\x1b[0m`);
+							process.stdout.write(
+								`\r${ansi.BRIGHT_BLACK}Retrying in ${remaining}s...${ansi.RESET}`,
+							);
 							lastSeconds = remaining;
 						}
 						if (remaining === 0) {
@@ -679,7 +682,7 @@ async function processReasoning(part: Part) {
 	}
 
 	const text = (part as any).text || "";
-	const cleanText = stripAnsiCodes(text.trimStart());
+	const cleanText = ansi.stripAnsiCodes(text.trimStart());
 	await writeToLog(`💭 Thinking...\n\n${cleanText}\n\n`);
 
 	render(state);
@@ -695,7 +698,7 @@ async function processText(part: Part) {
 	}
 
 	const text = (part as any).text || "";
-	const cleanText = stripAnsiCodes(text.trimStart());
+	const cleanText = ansi.stripAnsiCodes(text.trimStart());
 	await writeToLog(`💬 Response:\n\n${cleanText}\n\n`);
 
 	render(state);
@@ -713,7 +716,7 @@ async function processToolUse(part: Part) {
 		state.accumulatedResponse.push({ key: part.id, title: "tool", text: toolText });
 	}
 
-	const cleanToolText = stripAnsiCodes(toolText);
+	const cleanToolText = ansi.stripAnsiCodes(toolText);
 	await writeToLog(`${cleanToolText}\n\n`);
 
 	render(state);
@@ -736,10 +739,10 @@ async function processDiff(diff: FileDiff[]) {
 		const statusIcon = status === "added" ? "A" : status === "modified" ? "M" : "D";
 		const statusLabel =
 			status === "added" ? "added" : status === "modified" ? "modified" : "deleted";
-		const addStr = file.additions > 0 ? `\x1b[32m+${file.additions}\x1b[0m` : "";
-		const delStr = file.deletions > 0 ? `\x1b[31m-${file.deletions}\x1b[0m` : "";
+		const addStr = file.additions > 0 ? `${ansi.GREEN}+${file.additions}${ansi.RESET}` : "";
+		const delStr = file.deletions > 0 ? `${ansi.RED}-${file.deletions}${ansi.RESET}` : "";
 		const stats = [addStr, delStr].filter(Boolean).join(" ");
-		const line = `  \x1b[34m${statusIcon}\x1b[0m ${file.file} (${statusLabel}) ${stats}`;
+		const line = `  ${ansi.BLUE}${statusIcon}${ansi.RESET} ${file.file} (${statusLabel}) ${stats}`;
 		parts.push(line);
 
 		const newAfter = file.after ?? "";
@@ -753,7 +756,7 @@ async function processDiff(diff: FileDiff[]) {
 	if (hasChanges) {
 		state.accumulatedResponse.push({ key: "diff", title: "files", text: parts.join("\n") });
 
-		const diffText = stripAnsiCodes(parts.join("\n"));
+		const diffText = ansi.stripAnsiCodes(parts.join("\n"));
 		await writeToLog(`${diffText}\n\n`);
 
 		render(state);
@@ -861,10 +864,6 @@ async function writeToLog(text: string): Promise<void> {
 // ====================
 // UTILITIES
 // ====================
-
-function stripAnsiCodes(str: string): string {
-	return str.replace(/\x1b\[[0-9;]*m/g, "");
-}
 
 async function getFileCompletions(pattern: string): Promise<string[]> {
 	try {

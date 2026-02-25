@@ -12,6 +12,6 @@ let command: Command = {
 
 export default command;
 
-function run(client: OpencodeClient, state: State): void {
+function run(_client: OpencodeClient, state: State): void {
 	render(state, true);
 }

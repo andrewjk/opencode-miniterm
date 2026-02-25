@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn } from "node:child_process";
 
 const AUTH_USERNAME = process.env.OPENCODE_SERVER_USERNAME || "opencode";
 const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
@@ -12,7 +12,7 @@ function getAuthHeaders() {
 	return headers;
 }
 
-async function startServer() {
+async function startServer(): Promise<ReturnType<typeof spawn>> {
 	const server = spawn("opencode", ["serve"], {
 		stdio: "pipe",
 		shell: true,
@@ -28,7 +28,7 @@ async function startServer() {
 	return server;
 }
 
-async function main() {
+async function main(): Promise<void> {
 	const server = await startServer();
 
 	try {
@@ -90,16 +90,22 @@ async function main() {
 			console.log("Message response status:", msgRes.status);
 			const msgText = await msgRes.text();
 			console.log("Message response:", msgText);
-		} catch (error: any) {
+		} catch (error) {
 			clearTimeout(timeout);
-			if (error.name === "AbortError") {
+			if (error instanceof Error && error.name === "AbortError") {
 				console.error("Message send timed out after 30 seconds");
 			} else {
-				console.error("Message send error:", error.message);
+				console.error(
+					"Message send error:",
+					error instanceof Error ? error.message : String(error),
+				);
 			}
 		}
-	} catch (error: any) {
-		console.error("Error:", error.message, error.stack);
+	} catch (error) {
+		console.error(
+			"Error:",
+			error instanceof Error ? `${error.message} ${error.stack || ""}` : String(error),
+		);
 	} finally {
 		server.kill();
 		process.exit(0);
