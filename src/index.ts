@@ -1,6 +1,8 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Agent, Event, FileDiff, Message, Part, Session, ToolPart } from "@opencode-ai/sdk";
 import { spawn } from "node:child_process";
+import { glob } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import readline from "node:readline";
 import agentsCommand from "./commands/agents";
 import debugCommand from "./commands/debug";
@@ -72,6 +74,28 @@ let state: State = {
 	lastFileAfter: new Map(),
 };
 
+async function getFileCompletions(pattern: string): Promise<string[]> {
+	try {
+		const files: string[] = [];
+		for await (const file of glob(pattern)) {
+			if (
+				!file.startsWith("node_modules/") &&
+				!file.startsWith(".git/") &&
+				!file.startsWith("dist/") &&
+				!file.startsWith("build/")
+			) {
+				const isDir = await stat(file)
+					.then((s) => s.isDirectory())
+					.catch(() => false);
+				files.push(isDir ? file + "/" : file);
+			}
+		}
+		return files.sort();
+	} catch {
+		return [];
+	}
+}
+
 main().catch(console.error);
 
 async function main() {
@@ -133,12 +157,21 @@ async function main() {
 		let showCompletions = false;
 		let completionCycling = false;
 
-		const getCompletions = (text: string): string[] => {
+		const getCompletions = async (text: string): Promise<string[]> => {
 			if (text.startsWith("/")) {
 				return ["/help", ...SLASH_COMMANDS.map((c) => c.name)].filter((cmd) =>
 					cmd.startsWith(text),
 				);
 			}
+
+			const atMatch = text.match(/(@[^\s]*)$/);
+			if (atMatch) {
+				const prefix = atMatch[0]!;
+				const pattern = prefix.slice(1) + "*";
+				const files = await getFileCompletions(pattern);
+				return files.map((file: string) => text.replace(/@[^\s]*$/, "@" + file));
+			}
+
 			return [];
 		};
 
@@ -174,8 +207,8 @@ async function main() {
 			readline.moveCursor(process.stdout, deltaCol, deltaRow);
 		};
 
-		const handleTab = (): void => {
-			const potentialCompletions = getCompletions(inputBuffer);
+		const handleTab = async (): Promise<void> => {
+			const potentialCompletions = await getCompletions(inputBuffer);
 
 			if (potentialCompletions.length === 0) {
 				completionCycling = false;
@@ -291,10 +324,10 @@ async function main() {
 				}
 				case "tab": {
 					if (!completionCycling) {
-						handleTab();
+						await handleTab();
 					}
 					if (completionCycling && completions.length > 0) {
-						handleTab();
+						await handleTab();
 					}
 					return;
 				}
