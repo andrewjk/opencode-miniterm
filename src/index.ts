@@ -81,82 +81,9 @@ let state: State = {
 let logFile: Awaited<ReturnType<typeof open>> | null = null;
 let logFilePath: string | null = null;
 
-function getLogDir(): string {
-	const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-	return `${homeDir}/.local/share/opencode-miniterm/log`;
-}
-
-async function createLogFile(): Promise<void> {
-	if (!isLoggingEnabled()) {
-		return;
-	}
-
-	const logDir = getLogDir();
-	await mkdir(logDir, { recursive: true });
-
-	const now = new Date();
-	const timestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
-	const filename = `${timestamp}.txt`;
-	logFilePath = `${logDir}/${filename}`;
-
-	try {
-		logFile = await open(logFilePath, "w");
-	} catch (error) {
-		console.error("Failed to create log file:", error);
-		logFile = null;
-		logFilePath = null;
-	}
-}
-
-async function closeLogFile(): Promise<void> {
-	if (logFile) {
-		try {
-			await logFile.close();
-		} catch (error) {
-			console.error("Failed to close log file:", error);
-		}
-		logFile = null;
-		logFilePath = null;
-	}
-}
-
-async function writeToLog(text: string): Promise<void> {
-	if (logFile && isLoggingEnabled()) {
-		try {
-			await logFile.write(text);
-		} catch (error) {
-			console.error("Failed to write to log file:", error);
-		}
-	}
-}
-
-function stripAnsiCodes(str: string): string {
-	return str.replace(/\x1b\[[0-9;]*m/g, "");
-}
-
-async function getFileCompletions(pattern: string): Promise<string[]> {
-	try {
-		const files: string[] = [];
-		for await (const file of glob(pattern)) {
-			if (
-				!file.startsWith("node_modules/") &&
-				!file.startsWith(".git/") &&
-				!file.startsWith("dist/") &&
-				!file.startsWith("build/")
-			) {
-				const isDir = await stat(file)
-					.then((s) => s.isDirectory())
-					.catch(() => false);
-				files.push(isDir ? file + "/" : file);
-			}
-		}
-		return files.sort();
-	} catch {
-		return [];
-	}
-}
-
-main().catch(console.error);
+// ====================
+// MAIN ENTRY POINT
+// ====================
 
 async function main() {
 	loadConfig();
@@ -238,7 +165,6 @@ async function main() {
 			return [];
 		};
 
-		// TODO: Backspacing past the beginning of a line chews up too many lines
 		let oldWrappedRows = 0;
 		const renderLine = (): void => {
 			const consoleWidth = process.stdout.columns || 80;
@@ -378,7 +304,6 @@ async function main() {
 					if (history.length > 0) {
 						if (historyIndex < history.length - 1) {
 							historyIndex++;
-							inputBuffer = history[historyIndex]!;
 						} else {
 							historyIndex = history.length;
 							inputBuffer = "";
@@ -473,49 +398,160 @@ async function main() {
 	}
 }
 
-// USER INTERFACE
+// ====================
+// SERVER COMMUNICATION
 // ====================
 
-function findPreviousWordBoundary(text: string, pos: number): number {
-	if (pos <= 0) return 0;
+async function startOpenCodeServer() {
+	const serverProcess = spawn("opencode", ["serve"], {
+		stdio: ["ignore", "pipe", "pipe"],
+		shell: true,
+		cwd: process.cwd(),
+	});
 
-	let newPos = pos;
+	let started = false;
 
-	while (newPos > 0 && /\s/.test(text[newPos - 1]!)) {
-		newPos--;
-	}
+	console.log("\n\x1b[90mStarting OpenCode server...\x1b[0m\n");
 
-	while (newPos > 0 && !/\s/.test(text[newPos - 1]!)) {
-		newPos--;
-	}
+	serverProcess.stdout.on("data", (data) => {
+		if (!started) {
+			process.stdout.write(`\x1b[${2}A\x1b[0J`);
+			process.stdout.write("\x1b[0G");
+			started = true;
+			console.log("\x1b[90mServer started, connecting...\x1b[0m\n");
+		}
+	});
 
-	return newPos;
+	serverProcess.on("error", (error) => {
+		console.error("Failed to start OpenCode server:", error.message);
+		process.exit(1);
+	});
+
+	serverProcess.on("exit", (code) => {
+		console.log(`OpenCode server exited with code ${code}`);
+		process.exit(0);
+	});
+
+	process.on("SIGINT", () => {
+		console.log("\nShutting down...");
+		saveConfig();
+		serverProcess.kill("SIGINT");
+	});
+
+	await new Promise((resolve) => setTimeout(resolve, 3000));
+	return serverProcess;
 }
 
-function findNextWordBoundary(text: string, pos: number): number {
-	if (pos >= text.length) return text.length;
+async function createSession(): Promise<string> {
+	const result = await client.session.create({
+		body: {},
+	});
 
-	let newPos = pos;
-
-	while (newPos < text.length && !/\s/.test(text[newPos]!)) {
-		newPos++;
+	if (result.error) {
+		if (result.response.status === 401 && !AUTH_PASSWORD) {
+			throw new Error(
+				"Server requires authentication. Set OPENCODE_SERVER_PASSWORD environment variable.",
+			);
+		}
+		throw new Error(
+			`Failed to create session (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
 	}
 
-	while (newPos < text.length && /\s/.test(text[newPos]!)) {
-		newPos++;
-	}
-
-	return newPos;
+	return result.data.id;
 }
+
+async function validateSession(sessionID: string): Promise<boolean> {
+	try {
+		const result = await client.session.get({
+			path: { id: sessionID },
+		});
+		return !result.error && result.response.status === 200;
+	} catch {
+		return false;
+	}
+}
+
+async function startEventListener(): Promise<void> {
+	try {
+		const { stream } = await client.event.subscribe({
+			onSseError: (error) => {
+				console.error(
+					"\n\x1b[31mConnection error:\x1b[0m",
+					error instanceof Error ? error.message : String(error),
+				);
+			},
+		});
+
+		for await (const event of stream) {
+			try {
+				await processEvent(event);
+			} catch (error) {
+				console.error(
+					"\n\x1b[31mEvent processing error:\x1b[0m",
+					error instanceof Error ? error.message : String(error),
+				);
+			}
+		}
+	} catch (error) {
+		console.error(
+			"\n\x1b[31mFailed to connect to event stream:\x1b[0m",
+			error instanceof Error ? error.message : String(error),
+		);
+	}
+}
+
+async function sendMessage(sessionID: string, message: string) {
+	processing = false;
+	state.accumulatedResponse = [];
+	state.allEvents = [];
+	state.renderedLinesCount = 0;
+
+	await createLogFile();
+
+	await writeToLog(`User: ${message}\n\n`);
+
+	messageAbortController = new AbortController();
+
+	try {
+		const result = await client.session.prompt({
+			path: { id: sessionID },
+			body: {
+				model: {
+					providerID: config.providerID,
+					modelID: config.modelID,
+				},
+				parts: [{ type: "text", text: message }],
+			},
+			signal: messageAbortController.signal,
+		});
+
+		if (result.error) {
+			throw new Error(
+				`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
+			);
+		}
+	} catch (error: any) {
+		if (error.name === "AbortError" || messageAbortController?.signal.aborted) {
+			throw new Error("Request cancelled");
+		}
+		throw error;
+	} finally {
+		messageAbortController = null;
+		await closeLogFile();
+	}
+}
+
+// ====================
+// EVENT PROCESSING
+// ====================
 
 async function processEvent(event: Event): Promise<void> {
-	// Clear any existing retry countdown when new events arrive
 	if (retryInterval && event.type !== "session.status") {
 		clearInterval(retryInterval);
 		retryInterval = null;
 	}
 
-	// Store all events for debugging
 	state.allEvents.push(event);
 
 	switch (event.type) {
@@ -689,7 +725,6 @@ function processDelta(partID: string, delta: string) {
 		responsePart.text += delta;
 	}
 
-	// TODO: Only if it's changed?
 	render(state);
 }
 
@@ -734,145 +769,123 @@ function findLastPart(title: string) {
 	}
 }
 
-// SERVER COMMUNICATION
+// ====================
+// USER INTERFACE
 // ====================
 
-async function startEventListener(): Promise<void> {
-	try {
-		const { stream } = await client.event.subscribe({
-			onSseError: (error) => {
-				console.error(
-					"\n\x1b[31mConnection error:\x1b[0m",
-					error instanceof Error ? error.message : String(error),
-				);
-			},
-		});
+function findPreviousWordBoundary(text: string, pos: number): number {
+	if (pos <= 0) return 0;
 
-		for await (const event of stream) {
-			try {
-				await processEvent(event);
-			} catch (error) {
-				console.error(
-					"\n\x1b[31mEvent processing error:\x1b[0m",
-					error instanceof Error ? error.message : String(error),
-				);
+	let newPos = pos;
+
+	while (newPos > 0 && /\s/.test(text[newPos - 1]!)) {
+		newPos--;
+	}
+
+	while (newPos > 0 && !/\s/.test(text[newPos - 1]!)) {
+		newPos--;
+	}
+
+	return newPos;
+}
+
+function findNextWordBoundary(text: string, pos: number): number {
+	if (pos >= text.length) return text.length;
+
+	let newPos = pos;
+
+	while (newPos < text.length && !/\s/.test(text[newPos]!)) {
+		newPos++;
+	}
+
+	while (newPos < text.length && /\s/.test(text[newPos]!)) {
+		newPos++;
+	}
+
+	return newPos;
+}
+
+// ====================
+// LOGGING
+// ====================
+
+function getLogDir(): string {
+	const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+	return `${homeDir}/.local/share/opencode-miniterm/log`;
+}
+
+async function createLogFile(): Promise<void> {
+	if (!isLoggingEnabled()) {
+		return;
+	}
+
+	const logDir = getLogDir();
+	await mkdir(logDir, { recursive: true });
+
+	const now = new Date();
+	const timestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+	const filename = `${timestamp}.txt`;
+	logFilePath = `${logDir}/${filename}`;
+
+	try {
+		logFile = await open(logFilePath, "w");
+	} catch (error) {
+		console.error("Failed to create log file:", error);
+		logFile = null;
+		logFilePath = null;
+	}
+}
+
+async function closeLogFile(): Promise<void> {
+	if (logFile) {
+		try {
+			await logFile.close();
+		} catch (error) {
+			console.error("Failed to close log file:", error);
+		}
+		logFile = null;
+		logFilePath = null;
+	}
+}
+
+async function writeToLog(text: string): Promise<void> {
+	if (logFile && isLoggingEnabled()) {
+		try {
+			await logFile.write(text);
+		} catch (error) {
+			console.error("Failed to write to log file:", error);
+		}
+	}
+}
+
+// ====================
+// UTILITIES
+// ====================
+
+function stripAnsiCodes(str: string): string {
+	return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+async function getFileCompletions(pattern: string): Promise<string[]> {
+	try {
+		const files: string[] = [];
+		for await (const file of glob(pattern)) {
+			if (
+				!file.startsWith("node_modules/") &&
+				!file.startsWith(".git/") &&
+				!file.startsWith("dist/") &&
+				!file.startsWith("build/")
+			) {
+				const isDir = await stat(file)
+					.then((s) => s.isDirectory())
+					.catch(() => false);
+				files.push(isDir ? file + "/" : file);
 			}
 		}
-	} catch (error) {
-		console.error(
-			"\n\x1b[31mFailed to connect to event stream:\x1b[0m",
-			error instanceof Error ? error.message : String(error),
-		);
-	}
-}
-
-async function startOpenCodeServer() {
-	const serverProcess = spawn("opencode", ["serve"], {
-		stdio: ["ignore", "pipe", "pipe"],
-		shell: true,
-		cwd: process.cwd(),
-	});
-
-	let started = false;
-
-	console.log("\n\x1b[90mStarting OpenCode server...\x1b[0m\n");
-
-	serverProcess.stdout.on("data", (data) => {
-		if (!started) {
-			process.stdout.write(`\x1b[${2}A\x1b[0J`);
-			process.stdout.write("\x1b[0G");
-			started = true;
-			console.log("\x1b[90mServer started, connecting...\x1b[0m\n");
-		}
-	});
-
-	serverProcess.on("error", (error) => {
-		console.error("Failed to start OpenCode server:", error.message);
-		process.exit(1);
-	});
-
-	serverProcess.on("exit", (code) => {
-		console.log(`OpenCode server exited with code ${code}`);
-		process.exit(0);
-	});
-
-	process.on("SIGINT", () => {
-		console.log("\nShutting down...");
-		saveConfig();
-		serverProcess.kill("SIGINT");
-	});
-
-	await new Promise((resolve) => setTimeout(resolve, 3000));
-	return serverProcess;
-}
-
-async function createSession(): Promise<string> {
-	const result = await client.session.create({
-		body: {},
-	});
-
-	if (result.error) {
-		if (result.response.status === 401 && !AUTH_PASSWORD) {
-			throw new Error(
-				"Server requires authentication. Set OPENCODE_SERVER_PASSWORD environment variable.",
-			);
-		}
-		throw new Error(
-			`Failed to create session (${result.response.status}): ${JSON.stringify(result.error)}`,
-		);
-	}
-
-	return result.data.id;
-}
-
-async function validateSession(sessionID: string): Promise<boolean> {
-	try {
-		const result = await client.session.get({
-			path: { id: sessionID },
-		});
-		return !result.error && result.response.status === 200;
+		return files.sort();
 	} catch {
-		return false;
+		return [];
 	}
 }
 
-async function sendMessage(sessionID: string, message: string) {
-	processing = false;
-	state.accumulatedResponse = [];
-	state.allEvents = [];
-	state.renderedLinesCount = 0;
-
-	await createLogFile();
-
-	await writeToLog(`User: ${message}\n\n`);
-
-	messageAbortController = new AbortController();
-
-	try {
-		const result = await client.session.prompt({
-			path: { id: sessionID },
-			body: {
-				model: {
-					providerID: config.providerID,
-					modelID: config.modelID,
-				},
-				parts: [{ type: "text", text: message }],
-			},
-			signal: messageAbortController.signal,
-		});
-
-		if (result.error) {
-			throw new Error(
-				`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
-			);
-		}
-	} catch (error: any) {
-		if (error.name === "AbortError" || messageAbortController?.signal.aborted) {
-			throw new Error("Request cancelled");
-		}
-		throw error;
-	} finally {
-		messageAbortController = null;
-		await closeLogFile();
-	}
-}
+main().catch(console.error);
