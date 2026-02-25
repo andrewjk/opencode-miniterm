@@ -1,4 +1,5 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
+import { gfm, parse, renderToConsole } from "allmark";
 import * as ansi from "./ansi";
 import { config } from "./config";
 import type { State } from "./index";
@@ -46,7 +47,9 @@ export function render(state: State, details = false): void {
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
 			output += `💭 ${ansi.BRIGHT_BLACK}Thinking...\n\n${partText}${ansi.RESET}\n\n`;
 		} else if (part.title === "response") {
-			output += `💬 Response:\n\n${part.text.trimStart()}\n\n`;
+			const doc = parse(part.text.trimStart(), gfm);
+			const partText = renderToConsole(doc);
+			output += `💬 Response:\n\n${partText}\n\n`;
 		} else if (part.title === "tool") {
 			const toolText = part.text;
 			const colonIndex = toolText.indexOf(":");
