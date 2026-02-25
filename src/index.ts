@@ -11,6 +11,7 @@ import initCommand from "./commands/init";
 import killCommand from "./commands/kill";
 import modelsCommand from "./commands/models";
 import newCommand from "./commands/new";
+import pageCommand from "./commands/page";
 import quitCommand from "./commands/quit";
 import runCommand from "./commands/run";
 import sessionsCommand from "./commands/sessions";
@@ -32,6 +33,7 @@ const SLASH_COMMANDS = [
 	detailsCommand,
 	diffCommand,
 	debugCommand,
+	pageCommand,
 	killCommand,
 	exitCommand,
 	quitCommand,

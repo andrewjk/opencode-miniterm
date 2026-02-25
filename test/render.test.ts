@@ -9,6 +9,7 @@ describe("render", () => {
 		accumulatedResponse: [],
 		allEvents: [],
 		write: vi.fn(),
+		lastFileAfter: new Map(),
 		...overrides,
 	});
 
