@@ -551,6 +551,9 @@ async function sendMessage(sessionID: string, message: string) {
 				`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
 			);
 		}
+
+		// Play a chime when request is completed
+		process.stdout.write("\x07");
 	} catch (error: any) {
 		if (error.name === "AbortError" || messageAbortController?.signal.aborted) {
 			throw new Error("Request cancelled");
