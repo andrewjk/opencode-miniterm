@@ -6,6 +6,7 @@ export interface Config {
 	modelID: string;
 	agentID: string;
 	sessionID?: string;
+	loggingEnabled: boolean;
 }
 
 const ENV_VAR = "OPENCODE_MT_CONFIG_CONTENT";
@@ -14,6 +15,7 @@ export const config: Config = {
 	providerID: "opencode",
 	modelID: "big-pickle",
 	agentID: "build",
+	loggingEnabled: false,
 };
 
 const CONFIG_PATH = `${process.env.HOME}/.config/opencode-miniterm/opencode-miniterm.json`;

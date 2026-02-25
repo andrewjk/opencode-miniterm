@@ -1,4 +1,5 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
+import { config, saveConfig } from "../config";
 import type { State } from "../index";
 import type { Command } from "../types";
 
@@ -11,18 +12,13 @@ let command: Command = {
 
 export default command;
 
-let loggingEnabled = false;
-
 export function isLoggingEnabled(): boolean {
-	return loggingEnabled;
-}
-
-export function setLogging(enabled: boolean): void {
-	loggingEnabled = enabled;
+	return config.loggingEnabled;
 }
 
 function run(_client: OpencodeClient, _state: State): void {
-	loggingEnabled = !loggingEnabled;
-	const status = loggingEnabled ? "enabled" : "disabled";
+	config.loggingEnabled = !config.loggingEnabled;
+	saveConfig();
+	const status = config.loggingEnabled ? "enabled" : "disabled";
 	console.log(`📝 Logging ${status}\n`);
 }
