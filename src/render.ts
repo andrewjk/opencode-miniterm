@@ -48,7 +48,15 @@ export function render(state: State, details = false): void {
 		} else if (part.title === "response") {
 			output += `💬 Response:\n\n${part.text.trimStart()}\n\n`;
 		} else if (part.title === "tool") {
-			output += part.text + "\n\n";
+			const toolText = part.text;
+			const colonIndex = toolText.indexOf(":");
+			if (colonIndex !== -1) {
+				const prefix = toolText.slice(0, colonIndex + 1);
+				const suffix = toolText.slice(colonIndex + 1);
+				output += `${prefix} ${ansi.BRIGHT_BLACK}${suffix}${ansi.RESET}\n\n`;
+			} else {
+				output += toolText + "\n\n";
+			}
 		} else if (part.title === "files") {
 			output += part.text + "\n\n";
 		}
