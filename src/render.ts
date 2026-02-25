@@ -5,8 +5,6 @@ import { config } from "./config";
 import type { State } from "./index";
 
 export function render(state: State, details = false): void {
-	clearRenderedLines(state);
-
 	let output = "";
 
 	if (details) {
@@ -65,17 +63,26 @@ export function render(state: State, details = false): void {
 	}
 
 	if (output) {
-		if (process.stdout.columns) {
-			const lines = wrapText(output, process.stdout.columns);
-			for (let i = 0; i < lines.length; i++) {
-				state.write(lines[i]!);
-				state.write("\n");
+		const lines = wrapText(output, process.stdout.columns || 80);
+
+		// Clear lines that have changed
+		let firstDiff = state.renderedLines.length;
+		for (let i = 0; i < Math.max(state.renderedLines.length, lines.length); i++) {
+			if (state.renderedLines[i] !== lines[i]) {
+				firstDiff = i;
+				break;
 			}
-			state.renderedLinesCount = lines.length;
-		} else {
-			state.write(output);
-			countRenderedLines(state, output);
 		}
+		let linesToClear = state.renderedLines.length - firstDiff;
+		clearRenderedLines(state, linesToClear);
+
+		// Write new lines
+		for (let i = firstDiff; i < lines.length; i++) {
+			state.write(lines[i]!);
+			state.write("\n");
+		}
+
+		state.renderedLines = lines;
 	}
 }
 
@@ -114,43 +121,11 @@ function lastThinkingLines(text: string): string {
 	return text.slice(startIndex);
 }
 
-function clearRenderedLines(state: State): void {
-	if (state.renderedLinesCount > 0) {
-		state.write(`${ansi.CURSOR_UP(state.renderedLinesCount)}\x1b[J`);
+function clearRenderedLines(state: State, linesToClear: number): void {
+	if (linesToClear > 0) {
+		state.write(`${ansi.CURSOR_UP(linesToClear)}\x1b[J`);
 		state.write(ansi.CURSOR_HOME);
-		state.renderedLinesCount = 0;
 	}
-}
-
-function countRenderedLines(state: State, output: string): void {
-	const consoleWidth = process.stdout.columns || 80;
-	const strippedOutput = ansi.stripAnsiCodes(output);
-
-	let lineCount = 0;
-	let col = 0;
-
-	for (let i = 0; i < strippedOutput.length; i++) {
-		const char = strippedOutput[i];
-
-		if (char === "\n") {
-			lineCount++;
-			col = 0;
-		} else if (char === "\r") {
-			continue;
-		} else {
-			col++;
-			if (col >= consoleWidth) {
-				lineCount++;
-				col = 0;
-			}
-		}
-	}
-
-	if (col > 0) {
-		lineCount++;
-	}
-
-	state.renderedLinesCount = lineCount;
 }
 
 export function wrapText(text: string, width: number): string[] {

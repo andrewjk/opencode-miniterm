@@ -72,7 +72,7 @@ interface AccumulatedPart {
 
 export interface State {
 	sessionID: string;
-	renderedLinesCount: number;
+	renderedLines: string[];
 	accumulatedResponse: AccumulatedPart[];
 	allEvents: Event[];
 	write: (text: string) => void;
@@ -83,7 +83,7 @@ export { updateSessionTitle, setTerminalTitle };
 
 let state: State = {
 	sessionID: "",
-	renderedLinesCount: 0,
+	renderedLines: [],
 	accumulatedResponse: [],
 	allEvents: [],
 	write: (text) => process.stdout.write(text),
@@ -534,7 +534,7 @@ async function sendMessage(sessionID: string, message: string) {
 	processing = false;
 	state.accumulatedResponse = [];
 	state.allEvents = [];
-	state.renderedLinesCount = 0;
+	state.renderedLines = [];
 
 	await createLogFile();
 
