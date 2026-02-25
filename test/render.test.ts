@@ -133,13 +133,13 @@ describe("render", () => {
 		it("should render tool part without indicator", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ key: "xxx", title: "tool", text: "Running: ls -la" }],
+				accumulatedResponse: [{ key: "xxx", title: "tool", text: "🔧 bash: ls -la" }],
 				write,
 			});
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith("Running: ls -la\n\n");
+			expect(write).toHaveBeenCalledWith("🔧 bash: ls -la\n\n");
 		});
 	});
 
@@ -226,7 +226,7 @@ describe("render", () => {
 			const state = createMockState({
 				accumulatedResponse: [
 					{ key: "xxx", title: "thinking", text: "分析中" },
-					{ key: "xxx", title: "tool", text: "Running: npm test" },
+					{ key: "xxx", title: "tool", text: "🔧 bash: npm test" },
 					{ key: "xxx", title: "response", text: "Test results: 5 passed" },
 				],
 				write,
@@ -236,8 +236,8 @@ describe("render", () => {
 
 			const output = write.mock.calls[0]![0];
 			expect(output).not.toContain("💭 Thinking...");
-			expect(output).toContain("Running: npm test");
-			expect(output).toContain("💬 Response:");
+			expect(output).not.toContain("🔧 bash: npm test");
+			expect(output).toContain("💬 Response:\n\nTest results: 5 passed");
 		});
 	});
 });

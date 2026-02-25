@@ -559,7 +559,9 @@ function processText(part: Part) {
 }
 
 function processToolUse(part: Part) {
-	const toolText = `🔧 Using \`${(part as ToolPart).tool || "unknown"}\``;
+	const toolName = (part as ToolPart).tool || "unknown";
+	const toolInput = (part as any).input || "";
+	const toolText = `🔧 ${toolName}: ${toolInput}`;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
 		state.accumulatedResponse[state.accumulatedResponse.length - 1]!.text = toolText;
