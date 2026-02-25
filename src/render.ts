@@ -15,7 +15,6 @@ export function render(state: State, details = false): void {
 	// Only show the last (i.e. active) tool use
 	// Only show the last files part between parts
 	let foundPart = false;
-	let foundPartBetweenFiles = true;
 	let foundFiles = false;
 	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
 		const part = state.accumulatedResponse[i]!;
@@ -27,17 +26,13 @@ export function render(state: State, details = false): void {
 		if (part.title === "thinking") {
 			part.active = !foundPart;
 			foundPart = true;
-			foundPartBetweenFiles = part.active;
 		} else if (part.title === "tool") {
 			part.active = !foundPart;
-			foundPartBetweenFiles = part.active;
 		} else if (part.title === "files") {
-			part.active = foundPartBetweenFiles && !foundFiles;
-			foundPartBetweenFiles = false;
+			part.active = !foundFiles;
 			foundFiles = part.active;
 		} else {
 			foundPart = true;
-			foundPartBetweenFiles = true;
 			part.active = true;
 		}
 	}
@@ -48,7 +43,7 @@ export function render(state: State, details = false): void {
 
 		if (part.title === "thinking") {
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
-			output += `💭 Thinking...\n\n\x1b[90m${partText}\x1b[0m\n\n`;
+			output += `💭 \x1b[90mThinking...\n\n${partText}\x1b[0m\n\n`;
 		} else if (part.title === "response") {
 			output += `💬 Response:\n\n${part.text.trimStart()}\n\n`;
 		} else if (part.title === "tool") {
