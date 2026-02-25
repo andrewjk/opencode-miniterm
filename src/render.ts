@@ -125,8 +125,8 @@ function lastThinkingLines(text: string): string {
 function clearRenderedLines(state: State, linesToClear: number): void {
 	if (linesToClear > 0) {
 		state.write(`${ansi.CURSOR_UP(linesToClear)}\x1b[J`);
-		state.write(ansi.CURSOR_HOME);
 	}
+	state.write(ansi.CURSOR_HOME);
 }
 
 export function wrapText(text: string, width: number): string[] {
