@@ -167,6 +167,7 @@ async function main() {
 		let showCompletions = false;
 		let completionCycling = false;
 		let lastSpaceTime = 0;
+		let currentInputBuffer: string | null = null;
 
 		const getCompletions = async (text: string): Promise<string[]> => {
 			if (text.startsWith("/")) {
@@ -253,6 +254,7 @@ async function main() {
 			showCompletions = false;
 			completionCycling = false;
 			completions = [];
+			currentInputBuffer = null;
 
 			if (input) {
 				if (history[history.length - 1] !== input) {
@@ -317,6 +319,9 @@ async function main() {
 
 			switch (key.name) {
 				case "up": {
+					if (historyIndex === history.length) {
+						currentInputBuffer = inputBuffer;
+					}
 					if (history.length > 0) {
 						if (historyIndex > 0) {
 							historyIndex--;
@@ -337,7 +342,8 @@ async function main() {
 							inputBuffer = history[historyIndex]!;
 						} else {
 							historyIndex = history.length;
-							inputBuffer = "";
+							inputBuffer = currentInputBuffer || "";
+							currentInputBuffer = null;
 						}
 						cursorPosition = inputBuffer.length;
 						renderLine();
@@ -366,6 +372,7 @@ async function main() {
 					} else {
 						inputBuffer = "";
 						cursorPosition = 0;
+						currentInputBuffer = null;
 						renderLine();
 					}
 					return;
@@ -379,6 +386,7 @@ async function main() {
 						inputBuffer =
 							inputBuffer.slice(0, cursorPosition - 1) + inputBuffer.slice(cursorPosition);
 						cursorPosition--;
+						currentInputBuffer = null;
 					}
 					break;
 				}
@@ -386,6 +394,7 @@ async function main() {
 					if (cursorPosition < inputBuffer.length) {
 						inputBuffer =
 							inputBuffer.slice(0, cursorPosition) + inputBuffer.slice(cursorPosition + 1);
+						currentInputBuffer = null;
 					}
 					break;
 				}
@@ -424,6 +433,7 @@ async function main() {
 								inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
 							cursorPosition += str.length;
 						}
+						currentInputBuffer = null;
 					}
 				}
 			}
