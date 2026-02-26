@@ -14,7 +14,6 @@ import detailsCommand from "./commands/details";
 import diffCommand from "./commands/diff";
 import exitCommand from "./commands/exit";
 import initCommand from "./commands/init";
-import killCommand from "./commands/kill";
 import logCommand, { isLoggingEnabled } from "./commands/log";
 import modelsCommand from "./commands/models";
 import newCommand from "./commands/new";
@@ -42,7 +41,6 @@ const SLASH_COMMANDS = [
 	debugCommand,
 	logCommand,
 	pageCommand,
-	killCommand,
 	exitCommand,
 	quitCommand,
 	runCommand,
