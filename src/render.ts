@@ -84,6 +84,9 @@ export function render(state: State, details = false): void {
 		}
 
 		state.renderedLines = lines;
+	} else if (state.renderedLines.length > 0) {
+		clearRenderedLines(state, state.renderedLines.length);
+		state.renderedLines = [];
 	}
 }
 
@@ -130,15 +133,17 @@ function clearRenderedLines(state: State, linesToClear: number): void {
 }
 
 export function wrapText(text: string, width: number): string[] {
+	const INDENT = "  ";
+	const indentLength = INDENT.length;
 	const lines: string[] = [];
-	let currentLine = "";
-	let visibleLength = 0;
+	let currentLine = INDENT;
+	let visibleLength = indentLength;
 	let i = 0;
 
 	const pushLine = () => {
 		lines.push(currentLine);
-		currentLine = "";
-		visibleLength = 0;
+		currentLine = INDENT;
+		visibleLength = indentLength;
 	};
 
 	const addWord = (word: string, wordVisibleLength: number) => {
@@ -150,21 +155,21 @@ export function wrapText(text: string, width: number): string[] {
 				: visibleLength + 1 + wordVisibleLength <= width;
 
 		if (wouldFit) {
-			if (visibleLength > 0) {
+			if (visibleLength > indentLength) {
 				currentLine += " ";
 				visibleLength++;
 			}
 			currentLine += word;
 			visibleLength += wordVisibleLength;
-		} else if (visibleLength > 0) {
+		} else if (visibleLength > indentLength) {
 			pushLine();
-			currentLine = word;
-			visibleLength = wordVisibleLength;
+			currentLine = INDENT + word;
+			visibleLength = indentLength + wordVisibleLength;
 		} else if (wordVisibleLength <= width) {
-			currentLine = word;
-			visibleLength = wordVisibleLength;
+			currentLine = INDENT + word;
+			visibleLength = indentLength + wordVisibleLength;
 		} else {
-			const wordWidth = width;
+			const wordWidth = width - indentLength;
 			for (let w = 0; w < word.length; ) {
 				let segment = "";
 				let segmentVisible = 0;
@@ -192,8 +197,8 @@ export function wrapText(text: string, width: number): string[] {
 					if (currentLine) {
 						pushLine();
 					}
-					currentLine = segment;
-					visibleLength = segmentVisible;
+					currentLine = INDENT + segment;
+					visibleLength = indentLength + segmentVisible;
 				}
 			}
 		}
@@ -237,7 +242,7 @@ export function wrapText(text: string, width: number): string[] {
 		}
 	}
 
-	if (currentLine || lines.length === 0) {
+	if (currentLine.trim() || lines.length === 0) {
 		pushLine();
 	}
 

@@ -559,7 +559,7 @@ async function sendMessage(sessionID: string, message: string) {
 
 		const duration = Date.now() - requestStartTime;
 		const durationText = formatDuration(duration);
-		console.log(`${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
+		console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
 
 		writePrompt();
 
