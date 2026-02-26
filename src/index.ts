@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
 
-import { createOpencodeClient } from "@opencode-ai/sdk";
+import { createOpencodeClient, createOpencodeServer } from "@opencode-ai/sdk";
 import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
-import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { glob } from "node:fs/promises";
 import { stat } from "node:fs/promises";
@@ -92,8 +91,17 @@ let logFilePath: string | null = null;
 async function main() {
 	loadConfig();
 
-	const serverProcess = await startOpenCodeServer();
+	console.log(`\n${ansi.BRIGHT_BLACK}Connecting to OpenCode server...${ansi.RESET}\n`);
 
+	let server: Awaited<ReturnType<typeof createOpencodeServer>> | undefined;
+	try {
+		server = await createOpencodeServer();
+	} catch {
+		// Probably the server already exists?
+		// Should figure out a better way to check this
+	}
+
+	const cwd = process.cwd();
 	client = createOpencodeClient({
 		baseUrl: SERVER_URL,
 		headers: AUTH_PASSWORD
@@ -101,6 +109,14 @@ async function main() {
 					Authorization: `Basic ${Buffer.from(`${AUTH_USERNAME}:${AUTH_PASSWORD}`).toString("base64")}`,
 				}
 			: undefined,
+		directory: cwd,
+	});
+
+	process.on("SIGINT", () => {
+		console.log("\nShutting down...");
+		saveConfig();
+		server?.close();
+		process.exit(0);
 	});
 
 	try {
@@ -391,7 +407,7 @@ async function main() {
 		writePrompt();
 	} catch (error: any) {
 		console.error("Error:", error.message);
-		serverProcess.kill();
+		server?.close();
 		process.exit(1);
 	}
 }
@@ -399,46 +415,6 @@ async function main() {
 // ====================
 // SERVER COMMUNICATION
 // ====================
-
-async function startOpenCodeServer() {
-	const serverProcess = spawn("opencode", ["serve"], {
-		stdio: ["ignore", "pipe", "pipe"],
-		shell: true,
-		cwd: process.cwd(),
-	});
-
-	let started = false;
-
-	console.log(`\n${ansi.BRIGHT_BLACK}Starting OpenCode server...${ansi.RESET}\n`);
-
-	serverProcess.stdout.on("data", (data) => {
-		if (!started) {
-			process.stdout.write(`${ansi.CLEAR_SCREEN_UP}${ansi.CLEAR_FROM_CURSOR}`);
-			process.stdout.write(ansi.CURSOR_HOME);
-			started = true;
-			console.log(`${ansi.BRIGHT_BLACK}Server started, connecting...${ansi.RESET}\n`);
-		}
-	});
-
-	serverProcess.on("error", (error) => {
-		console.error("Failed to start OpenCode server:", error.message);
-		process.exit(1);
-	});
-
-	serverProcess.on("exit", (code) => {
-		console.log(`OpenCode server exited with code ${code}`);
-		process.exit(0);
-	});
-
-	process.on("SIGINT", () => {
-		console.log("\nShutting down...");
-		saveConfig();
-		serverProcess.kill("SIGINT");
-	});
-
-	await new Promise((resolve) => setTimeout(resolve, 3000));
-	return serverProcess;
-}
 
 async function createSession(): Promise<string> {
 	const result = await client.session.create({
