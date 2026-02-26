@@ -783,15 +783,11 @@ async function processTodos(todos: Todo[]) {
 	for (let todo of todos) {
 		let todoText = "";
 		if (todo.status === "completed") {
-			todoText += ansi.STRIKETHROUGH;
 			todoText += "- [✓] ";
 		} else {
 			todoText += "- [ ] ";
 		}
 		todoText += todo.content;
-		if (todo.status === "completed") {
-			todoText += ansi.RESET;
-		}
 		todoListText += todoText + "\n";
 	}
 
