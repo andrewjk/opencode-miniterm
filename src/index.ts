@@ -134,6 +134,8 @@ async function main() {
 
 		await updateSessionTitle();
 
+		const sessionHistory = await loadSessionHistory();
+
 		const activeDisplay = await getActiveDisplay(client);
 
 		process.stdout.write(`${ansi.CLEAR_SCREEN_UP}${ansi.CLEAR_FROM_CURSOR}`);
@@ -158,8 +160,8 @@ async function main() {
 		let inputBuffer = "";
 		let cursorPosition = 0;
 		let completions: string[] = [];
-		let history: string[] = [];
-		let historyIndex = -1;
+		let history: string[] = sessionHistory;
+		let historyIndex = history.length;
 		let selectedCompletion = 0;
 		let showCompletions = false;
 		let completionCycling = false;
@@ -313,8 +315,11 @@ async function main() {
 					if (history.length > 0) {
 						if (historyIndex > 0) {
 							historyIndex--;
+							inputBuffer = history[historyIndex]!;
+						} else {
+							historyIndex = Math.max(-1, historyIndex - 1);
+							inputBuffer = "";
 						}
-						inputBuffer = history[historyIndex]!;
 						cursorPosition = inputBuffer.length;
 						renderLine();
 					}
@@ -324,6 +329,7 @@ async function main() {
 					if (history.length > 0) {
 						if (historyIndex < history.length - 1) {
 							historyIndex++;
+							inputBuffer = history[historyIndex]!;
 						} else {
 							historyIndex = history.length;
 							inputBuffer = "";
@@ -456,6 +462,34 @@ async function updateSessionTitle(): Promise<void> {
 		}
 	} catch {
 		setTerminalTitle(state.sessionID.substring(0, 8));
+	}
+}
+
+async function loadSessionHistory(): Promise<string[]> {
+	try {
+		const result = await client.session.messages({
+			path: { id: state.sessionID },
+		});
+		if (result.error || !result.data) {
+			return [];
+		}
+
+		const history: string[] = [];
+		for (const msg of result.data) {
+			if (msg.info.role === "user") {
+				const textParts = msg.parts
+					.filter((p: Part) => p.type === "text")
+					.map((p: Part) => (p as any).text || "")
+					.filter(Boolean);
+				const text = textParts.join("").trim();
+				if (text && !text.startsWith("/")) {
+					history.push(text);
+				}
+			}
+		}
+		return history;
+	} catch {
+		return [];
 	}
 }
 
