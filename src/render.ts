@@ -252,16 +252,38 @@ export function writePrompt(): void {
 
 const ANIMATION_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"];
 let animationInterval: ReturnType<typeof setInterval> | null = null;
+let requestStartTime: number | null = null;
 
-export function startAnimation(): void {
+export function startAnimation(startTime?: number): void {
 	if (animationInterval) return;
+
+	requestStartTime = startTime || Date.now();
 
 	let index = 0;
 	animationInterval = setInterval(() => {
-		process.stdout.write(`\r${ansi.BOLD_MAGENTA}`);
-		process.stdout.write(`${ANIMATION_CHARS[index]}${ansi.RESET}`);
+		const elapsed = Date.now() - requestStartTime!;
+		const elapsedText = formatDuration(elapsed);
+
+		process.stdout.write(
+			`\r${ansi.BOLD_MAGENTA}${ANIMATION_CHARS[index]} ${ansi.RESET}${ansi.BRIGHT_BLACK}Running for ${elapsedText}${ansi.RESET}`,
+		);
 		index = (index + 1) % ANIMATION_CHARS.length;
 	}, 100);
+}
+
+function formatDuration(ms: number): string {
+	const seconds = ms / 1000;
+	if (seconds < 60) {
+		return `${Math.round(seconds)}s`;
+	}
+	const minutes = Math.floor(seconds / 60);
+	const remainingSeconds = Math.round(seconds % 60);
+	if (minutes < 60) {
+		return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+	}
+	const hours = Math.floor(minutes / 60);
+	const remainingMinutes = minutes % 60;
+	return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
 export function stopAnimation(): void {
