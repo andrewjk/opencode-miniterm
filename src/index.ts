@@ -50,6 +50,7 @@ let client: ReturnType<typeof createOpencodeClient>;
 
 let processing = true;
 let retryInterval: ReturnType<typeof setInterval> | null = null;
+let isRequestActive = false;
 
 interface AccumulatedPart {
 	key: string;
@@ -284,13 +285,16 @@ async function main() {
 						return;
 					}
 
+					isRequestActive = true;
 					process.stdout.write(ansi.CURSOR_HIDE);
 					startAnimation();
 					if (isLoggingEnabled()) {
 						console.log(`📝 ${ansi.BRIGHT_BLACK}Logging to ${getLogDir()}\n${ansi.RESET}`);
 					}
 					await sendMessage(state.sessionID, input);
+					isRequestActive = false;
 				} catch (error: any) {
+					isRequestActive = false;
 					if (error.message !== "Request cancelled") {
 						stopAnimation();
 						console.error("Error:", error.message);
@@ -350,13 +354,20 @@ async function main() {
 					return;
 				}
 				case "escape": {
-					if (state.sessionID) {
-						client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
+					if (isRequestActive) {
+						if (state.sessionID) {
+							client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
+						}
+						stopAnimation();
+						process.stdout.write(ansi.CURSOR_SHOW);
+						process.stdout.write(`\r  ${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
+						writePrompt();
+						isRequestActive = false;
+					} else {
+						inputBuffer = "";
+						cursorPosition = 0;
+						renderLine();
 					}
-					stopAnimation();
-					process.stdout.write(ansi.CURSOR_SHOW);
-					process.stdout.write(`\r${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
-					writePrompt();
 					return;
 				}
 				case "return": {
@@ -638,6 +649,7 @@ async function processEvent(event: Event): Promise<void> {
 		case "session.status":
 			if (event.type === "session.status" && event.properties.status.type === "idle") {
 				stopAnimation();
+				isRequestActive = false;
 				process.stdout.write(ansi.CURSOR_SHOW);
 				if (retryInterval) {
 					clearInterval(retryInterval);
