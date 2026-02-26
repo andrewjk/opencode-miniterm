@@ -165,6 +165,7 @@ async function main() {
 		let selectedCompletion = 0;
 		let showCompletions = false;
 		let completionCycling = false;
+		let lastSpaceTime = 0;
 
 		const getCompletions = async (text: string): Promise<string[]> => {
 			if (text.startsWith("/")) {
@@ -395,9 +396,23 @@ async function main() {
 				}
 				default: {
 					if (str) {
-						inputBuffer =
-							inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
-						cursorPosition += str.length;
+						if (str === " ") {
+							const now = Date.now();
+							if (now - lastSpaceTime < 500 && cursorPosition > 0 && inputBuffer[cursorPosition - 1] === " ") {
+								inputBuffer =
+									inputBuffer.slice(0, cursorPosition - 1) + ". " + inputBuffer.slice(cursorPosition);
+								cursorPosition += 1;
+							} else {
+								inputBuffer =
+									inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
+								cursorPosition += str.length;
+							}
+							lastSpaceTime = now;
+						} else {
+							inputBuffer =
+								inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
+							cursorPosition += str.length;
+						}
 					}
 				}
 			}
