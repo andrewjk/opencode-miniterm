@@ -44,7 +44,7 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 	if (sessions.length === 0) {
 		console.log("No sessions found. Creating a new session...");
 		state.sessionID = await createSession(client);
-		config.sessionID = state.sessionID;
+		config.sessionIDs[process.cwd()] = state.sessionID;
 		saveConfig();
 		console.log(`Created new session: ${state.sessionID}...\n`);
 		await updateSessionTitle();
@@ -135,7 +135,7 @@ async function handleKey(_client: OpencodeClient, key: Key, str?: string) {
 			readline.cursorTo(process.stdout, 0);
 			readline.clearScreenDown(process.stdout);
 			if (selected) {
-				config.sessionID = selected.id;
+				config.sessionIDs[process.cwd()] = selected.id;
 				saveConfig();
 				console.log(`Switched to session: ${selected.id.substring(0, 8)}...`);
 				if (selected.title) {
@@ -222,7 +222,7 @@ function renderSessionList(): void {
 			const globalIndex = sessionList.indexOf(session);
 			const filteredIndex = sessionFilteredIndices.indexOf(globalIndex);
 			const isSelected = filteredIndex === selectedSessionIndex;
-			const isActive = session.id === config.sessionID;
+			const isActive = session.id === config.sessionIDs[process.cwd()];
 			const prefix = isSelected ? "  >" : "   -";
 			const title = session.title || "(no title)";
 			const name = isSelected ? `\x1b[33;1m${title}\x1b[0m` : title;
@@ -250,7 +250,7 @@ function updateSessionFilter(): void {
 	}
 	if (sessionFilteredIndices.length > 0) {
 		selectedSessionIndex = sessionFilteredIndices.indexOf(
-			sessionList.findIndex((s) => s.id === config.sessionID),
+			sessionList.findIndex((s) => s.id === config.sessionIDs[process.cwd()]),
 		);
 		if (selectedSessionIndex === -1) selectedSessionIndex = 0;
 	}

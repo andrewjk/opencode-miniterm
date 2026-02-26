@@ -122,11 +122,11 @@ async function main() {
 	try {
 		let isNewSession = false;
 
-		const initialSessionID = config.sessionID;
+		const initialSessionID = config.sessionIDs[cwd];
 		if (!initialSessionID || !(await validateSession(initialSessionID))) {
 			state.sessionID = await createSession();
 			isNewSession = true;
-			config.sessionID = state.sessionID;
+			config.sessionIDs[cwd] = state.sessionID;
 			saveConfig();
 		} else {
 			state.sessionID = initialSessionID;

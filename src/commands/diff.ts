@@ -20,7 +20,8 @@ interface DiffLine {
 }
 
 async function run(client: OpencodeClient, state: State): Promise<void> {
-	if (!config.sessionID) {
+	const cwd = process.cwd();
+	if (!config.sessionIDs[cwd]) {
 		console.log("No active session.\n");
 		return;
 	}
@@ -28,7 +29,7 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 	console.log("Fetching file changes...");
 
 	const result = await client.session.diff({
-		path: { id: config.sessionID },
+		path: { id: config.sessionIDs[cwd] },
 	});
 
 	if (result.error) {

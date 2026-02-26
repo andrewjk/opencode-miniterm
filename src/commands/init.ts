@@ -14,11 +14,12 @@ let command: Command = {
 export default command;
 
 async function run(_client: OpencodeClient, _state: State): Promise<void> {
-	if (!config.sessionID) return;
+	const cwd = process.cwd();
+	if (!config.sessionIDs[cwd]) return;
 
 	console.log("Running /init command (analyzing project and creating AGENTS.md)...");
 	const result = await _client.session.init({
-		path: { id: config.sessionID },
+		path: { id: config.sessionIDs[cwd] },
 	});
 
 	if (result.error) {

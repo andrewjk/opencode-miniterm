@@ -16,7 +16,7 @@ export default command;
 
 async function run(client: OpencodeClient, state: State): Promise<void> {
 	state.sessionID = await createSession(client);
-	config.sessionID = state.sessionID;
+	config.sessionIDs[process.cwd()] = state.sessionID;
 	saveConfig();
 
 	await updateSessionTitle();

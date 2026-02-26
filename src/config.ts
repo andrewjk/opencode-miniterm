@@ -5,7 +5,7 @@ export interface Config {
 	providerID: string;
 	modelID: string;
 	agentID: string;
-	sessionID?: string;
+	sessionIDs: Record<string, string>;
 	loggingEnabled: boolean;
 }
 
@@ -15,6 +15,7 @@ export const config: Config = {
 	providerID: "opencode",
 	modelID: "big-pickle",
 	agentID: "build",
+	sessionIDs: {},
 	loggingEnabled: false,
 };
 

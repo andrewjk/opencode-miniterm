@@ -13,12 +13,13 @@ let command: Command = {
 export default command;
 
 async function run(client: OpencodeClient, _state: State): Promise<void> {
-	if (!config.sessionID) return;
+	const cwd = process.cwd();
+	if (!config.sessionIDs[cwd]) return;
 
 	console.log("Fetching session messages...");
 
 	const messagesRes = await client.session.messages({
-		path: { id: config.sessionID },
+		path: { id: config.sessionIDs[cwd] },
 	});
 
 	if (messagesRes.error) {
@@ -49,7 +50,7 @@ async function run(client: OpencodeClient, _state: State): Promise<void> {
 	console.log(`Reverting last assistant message (${lastMessage.info.id})...`);
 
 	const revertRes = await client.session.revert({
-		path: { id: config.sessionID },
+		path: { id: config.sessionIDs[process.cwd()] },
 		body: {
 			messageID: lastMessage.info.id,
 		},
