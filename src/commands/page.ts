@@ -25,13 +25,9 @@ function run(client: OpencodeClient, state: State): void {
 		if (!part || !part.text.trim()) continue;
 
 		if (part.title === "thinking") {
-			pages.push(
-				`${ansi.BOLD_BRIGHT_BLACK}~${ansi.RESET} ${ansi.BRIGHT_BLACK}${part.text.trimStart()}${ansi.RESET}`,
-			);
+			pages.push(`💭 ${ansi.BRIGHT_BLACK}${part.text.trimStart()}${ansi.RESET}`);
 		} else if (part.title === "response") {
-			pages.push(
-				`${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} ${part.text.trimStart()}`,
-			);
+			pages.push(`💭 ${part.text.trimStart()}`);
 		} else {
 			pages.push(part.text);
 		}

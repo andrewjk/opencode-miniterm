@@ -63,7 +63,7 @@ describe("render", () => {
 			const calls = write.mock.calls.map((c) => c[0]);
 			expect(calls.some((c) => c.includes("\u001B[2A"))).toBe(true);
 			const outputCall = calls.find((c) => c.includes("i've done it"));
-			expect(outputCall).toContain(`${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET}`);
+			expect(outputCall).toContain(`💬`);
 		});
 	});
 
@@ -78,9 +78,7 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain(
-				`${ansi.BOLD_BRIGHT_BLACK}~${ansi.RESET} ${ansi.BRIGHT_BLACK}分析问题${ansi.RESET}`,
-			);
+			expect(output).toContain(`💭 ${ansi.BRIGHT_BLACK}分析问题${ansi.RESET}`);
 		});
 
 		it("should only show thinking indicator for last thinking part", () => {
@@ -96,9 +94,7 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain(
-				`${ansi.BOLD_BRIGHT_BLACK}~${ansi.RESET} ${ansi.BRIGHT_BLACK}second${ansi.RESET}`,
-			);
+			expect(output).toContain(`💭 ${ansi.BRIGHT_BLACK}second${ansi.RESET}`);
 			expect(output).not.toContain("first");
 		});
 
@@ -138,9 +134,7 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain(
-				`${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} Hello world`,
-			);
+			expect(output).toContain(`💬 Hello world`);
 		});
 	});
 
@@ -158,7 +152,7 @@ describe("render", () => {
 			expect(output).toContain("bash: ls -la");
 		});
 
-		it.only("multiple tool parts separated by inactive parts shouldn't have a blank line", () => {
+		it("multiple tool parts separated by inactive parts shouldn't have a blank line", () => {
 			const write = vi.fn();
 			const state = createMockState({
 				accumulatedResponse: [
@@ -175,7 +169,7 @@ describe("render", () => {
 
 			const output = stripANSI(write.mock.calls.map((c) => c[0]).join("")).replaceAll("  ", "");
 			console.log(output);
-			expect(output).toContain("foo\nbar\n\n~ ok");
+			expect(output).toContain("foo\nbar\n\n💭 ok");
 			expect(output).toContain("stuff\n\nbaz");
 		});
 	});
@@ -275,9 +269,7 @@ describe("render", () => {
 			const output = write.mock.calls.map((c) => c[0]).join("");
 			expect(output).not.toContain(`分析中`);
 			expect(output).toContain(`bash: npm test`);
-			expect(output).toContain(
-				`${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} Test results: 5 passed`,
-			);
+			expect(output).toContain(`💬 Test results: 5 passed`);
 		});
 	});
 });

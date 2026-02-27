@@ -45,12 +45,12 @@ export function render(state: State, details = false): void {
 		if (part.title === "thinking") {
 			// Show max 10 thinking lines
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
-			output += `${ansi.BOLD_BRIGHT_BLACK}~${ansi.RESET} ${ansi.BRIGHT_BLACK}${partText}${ansi.RESET}\n\n`;
+			output += `💭 ${ansi.BRIGHT_BLACK}${partText}${ansi.RESET}\n\n`;
 		} else if (part.title === "response") {
 			// Show all response lines
 			const doc = parse(part.text.trimStart(), gfm);
 			const partText = renderToConsole(doc);
-			output += `${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} ${partText}\n\n`;
+			output += `💬 ${partText}\n\n`;
 		} else if (part.title === "tool") {
 			// TODO: Show max 10 tool/file lines?
 			if (lastPartWasTool && output.endsWith("\n\n")) {
