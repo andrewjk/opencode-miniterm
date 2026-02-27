@@ -1,5 +1,6 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { Key } from "node:readline";
+import * as ansi from "../ansi";
 import type { State } from "../index";
 import { wrapText } from "../render";
 import type { Command } from "../types";
@@ -24,18 +25,20 @@ function run(client: OpencodeClient, state: State): void {
 		if (!part || !part.text.trim()) continue;
 
 		if (part.title === "thinking") {
-			pages.push(`💭 \x1b[90m${part.text.trimStart()}\x1b[0m`);
+			pages.push(
+				`${ansi.BOLD_BRIGHT_BLACK}~${ansi.RESET} ${ansi.BRIGHT_BLACK}${part.text.trimStart()}${ansi.RESET}`,
+			);
 		} else if (part.title === "response") {
-			pages.push(`💬 ${part.text.trimStart()}`);
-		} else if (part.title === "tool") {
-			pages.push(part.text);
-		} else if (part.title === "files") {
+			pages.push(
+				`${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} ${part.text.trimStart()}`,
+			);
+		} else {
 			pages.push(part.text);
 		}
 	}
 
 	if (pages.length === 0) {
-		console.log("\n\x1b[90mNo parts to display yet.\x1b[0m\n");
+		console.log(`${ansi.BRIGHT_BLACK}No parts to display yet.${ansi.RESET}\n`);
 		return;
 	}
 

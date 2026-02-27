@@ -774,7 +774,7 @@ async function processReasoning(part: Part) {
 
 	const text = (part as any).text || "";
 	const cleanText = ansi.stripAnsiCodes(text.trimStart());
-	await writeToLog(`💭 Thinking...\n\n${cleanText}\n\n`);
+	await writeToLog(`Thinking:\n\n${cleanText}\n\n`);
 
 	render(state);
 }
@@ -790,7 +790,7 @@ async function processText(part: Part) {
 
 	const text = (part as any).text || "";
 	const cleanText = ansi.stripAnsiCodes(text.trimStart());
-	await writeToLog(`💬 Response:\n\n${cleanText}\n\n`);
+	await writeToLog(`Response:\n\n${cleanText}\n\n`);
 
 	render(state);
 }
@@ -799,7 +799,7 @@ async function processToolUse(part: Part) {
 	const toolPart = part as ToolPart;
 	const toolName = toolPart.tool || "unknown";
 	const toolInput = toolPart.state.input["description"] || toolPart.state.input["filePath"] || {};
-	const toolText = `🔧 ${toolName}: ${ansi.BRIGHT_BLACK}${toolInput}${ansi.RESET}`;
+	const toolText = `${ansi.BRIGHT_BLACK}$${ansi.RESET} ${toolName}: ${ansi.BRIGHT_BLACK}${toolInput}${ansi.RESET}`;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
 		state.accumulatedResponse[state.accumulatedResponse.length - 1]!.text = toolText;
@@ -808,7 +808,7 @@ async function processToolUse(part: Part) {
 	}
 
 	const cleanToolText = ansi.stripAnsiCodes(toolText);
-	await writeToLog(`${cleanToolText}\n\n`);
+	await writeToLog(`$ ${cleanToolText}\n\n`);
 
 	render(state);
 }

@@ -9,12 +9,16 @@ export const CURSOR_UP = (lines: number) => `\x1b[${lines}A`;
 export const RESET = "\x1b[0m";
 export const BRIGHT_WHITE = "\x1b[97m";
 export const BRIGHT_BLACK = "\x1b[90m";
+export const BOLD_BRIGHT_BLACK = "\x1b[1;90m";
 export const RED = "\x1b[31m";
 export const GREEN = "\x1b[32m";
 export const BLUE = "\x1b[34m";
 export const CYAN = "\x1b[36m";
 export const BOLD_MAGENTA = "\x1b[1;35m";
 export const STRIKETHROUGH = "\x1b[9m";
+export const WHITE_BACKGROUND = "\x1b[47m";
+export const BRIGHT_BLACK_BACKGROUND = "\x1b[0;100m";
+export const BOLD_BLACK = "\x1b[1;30m";
 export const ANSI_CODE_PATTERN = /^\x1b\[[0-9;]*m/;
 
 export function stripAnsiCodes(str: string): string {

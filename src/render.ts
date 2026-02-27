@@ -22,11 +22,14 @@ export function render(state: State, details = false): void {
 		}
 
 		if (part.title === "thinking") {
+			if (part.active === false) {
+				break;
+			}
 			part.active = !foundPart;
 			foundPart = true;
-		} else if (part.active === false) {
-			// We've already handled all the parts before here
-			break;
+		} else if (part.title === "response") {
+			part.active = true;
+			foundPart = true;
 		} else {
 			part.active = true;
 		}
@@ -40,12 +43,12 @@ export function render(state: State, details = false): void {
 		if (part.title === "thinking") {
 			// Show max 10 thinking lines
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
-			output += `💭 ${ansi.BRIGHT_BLACK}${partText}${ansi.RESET}\n\n`;
+			output += `${ansi.BOLD_BRIGHT_BLACK}~${ansi.RESET} ${ansi.BRIGHT_BLACK}${partText}${ansi.RESET}\n\n`;
 		} else if (part.title === "response") {
 			// Show all response lines
 			const doc = parse(part.text.trimStart(), gfm);
 			const partText = renderToConsole(doc);
-			output += `💬 ${partText}\n\n`;
+			output += `${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} ${partText}\n\n`;
 		} else if (part.title === "tool" || part.title === "files") {
 			// TODO: Show max 10 tool/file lines?
 			output += part.text + "\n\n";

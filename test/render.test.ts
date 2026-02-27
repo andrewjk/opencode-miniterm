@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "bun:test";
 import { type State } from "../src";
+import * as ansi from "../src/ansi";
 import { render, wrapText } from "../src/render";
 
 describe("render", () => {
@@ -61,7 +62,7 @@ describe("render", () => {
 			const calls = write.mock.calls.map((c) => c[0]);
 			expect(calls.some((c) => c.includes("\u001B[2A"))).toBe(true);
 			const outputCall = calls.find((c) => c.includes("i've done it"));
-			expect(outputCall).toContain("💬");
+			expect(outputCall).toContain(`${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET}`);
 		});
 	});
 
@@ -76,8 +77,9 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain("💭");
-			expect(output).toContain("分析问题");
+			expect(output).toContain(
+				`${ansi.BOLD_BRIGHT_BLACK}~${ansi.RESET} ${ansi.BRIGHT_BLACK}分析问题${ansi.RESET}`,
+			);
 		});
 
 		it("should only show thinking indicator for last thinking part", () => {
@@ -93,9 +95,10 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain("💭");
-			expect(output).toContain("second");
-			expect(output).not.toMatch(/first.*Thinking/);
+			expect(output).toContain(
+				`${ansi.BOLD_BRIGHT_BLACK}~${ansi.RESET} ${ansi.BRIGHT_BLACK}second${ansi.RESET}`,
+			);
+			expect(output).not.toContain("first");
 		});
 
 		it("should skip parts with empty text", () => {
@@ -134,23 +137,24 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain("💬");
-			expect(output).toContain("Hello world");
+			expect(output).toContain(
+				`${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} Hello world`,
+			);
 		});
 	});
 
 	describe("tool parts", () => {
-		it("should render tool part without indicator", () => {
+		it("should render tool part with indicator", () => {
 			const write = vi.fn();
 			const state = createMockState({
-				accumulatedResponse: [{ key: "xxx", title: "tool", text: "🔧 bash: ls -la" }],
+				accumulatedResponse: [{ key: "xxx", title: "tool", text: "bash: ls -la" }],
 				write,
 			});
 
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain("🔧 bash: ls -la");
+			expect(output).toContain("bash: ls -la");
 		});
 	});
 
@@ -238,7 +242,7 @@ describe("render", () => {
 			const state = createMockState({
 				accumulatedResponse: [
 					{ key: "xxx", title: "thinking", text: "分析中" },
-					{ key: "xxx", title: "tool", text: "🔧 bash: npm test" },
+					{ key: "xxx", title: "tool", text: "bash: npm test" },
 					{ key: "xxx", title: "response", text: "Test results: 5 passed" },
 				],
 				write,
@@ -247,10 +251,11 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).not.toContain("💭");
-			expect(output).not.toContain("🔧 bash: npm test");
-			expect(output).toContain("💬");
-			expect(output).toContain("Test results: 5 passed");
+			expect(output).not.toContain(`分析中`);
+			expect(output).toContain(`bash: npm test`);
+			expect(output).toContain(
+				`${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} Test results: 5 passed`,
+			);
 		});
 	});
 });
@@ -259,115 +264,123 @@ describe("wrapText", () => {
 	describe("basic wrapping", () => {
 		it("should return single line for text shorter than width", () => {
 			const result = wrapText("hello", 20);
-			expect(result).toEqual(["hello"]);
+			expect(result).toEqual(["  hello"]);
 		});
 
 		it("should wrap text longer than width", () => {
 			const result = wrapText("hello world this is a long text", 10);
-			expect(result).toEqual(["hello", "world this", "is a long", "text"]);
+			expect(result).toEqual(["  hello", "  world", "  this is", "  a long", "  text"]);
 		});
 
 		it("should handle text exactly at width", () => {
 			const result = wrapText("1234567890", 10);
-			expect(result).toEqual(["1234567890"]);
+			expect(result).toEqual(["  1234567890"]);
 		});
 
 		it("should break long word that exceeds width", () => {
 			const result = wrapText("12345678901", 10);
-			expect(result).toEqual(["1234567890", "1"]);
+			expect(result).toEqual(["  ", "  12345678", "  901"]);
 		});
 	});
 
 	describe("multiple lines", () => {
 		it("should preserve existing newlines", () => {
 			const result = wrapText("line1\nline2\nline3", 20);
-			expect(result).toEqual(["line1", "line2", "line3"]);
+			expect(result).toEqual(["  line1", "  line2", "  line3"]);
 		});
 
 		it("should wrap lines that are too long", () => {
 			const result = wrapText("very long line1\nshort\nvery long line2", 10);
-			expect(result).toEqual(["very long", "line1", "short", "very long", "line2"]);
+			expect(result).toEqual([
+				"  very",
+				"  long",
+				"  line1",
+				"  short",
+				"  very",
+				"  long",
+				"  line2",
+			]);
 		});
 
 		it("should handle empty lines", () => {
 			const result = wrapText("line1\n\nline3", 20);
-			expect(result).toEqual(["line1", "", "line3"]);
+			expect(result).toEqual(["  line1", "  ", "  line3"]);
 		});
 	});
 
 	describe("ANSI codes", () => {
 		it("should preserve ANSI codes in output", () => {
 			const result = wrapText("\x1b[31mred\x1b[0m text", 20);
-			expect(result).toEqual(["\x1b[31mred\x1b[0m text"]);
+			expect(result).toEqual(["  \x1b[31mred\x1b[0m text"]);
 		});
 
 		it("should not count ANSI codes toward visible width", () => {
 			const result = wrapText("\x1b[31mred\x1b[0m text", 8);
-			expect(result).toEqual(["\x1b[31mred\x1b[0m text"]);
+			expect(result).toEqual(["  \x1b[31mred\x1b[0m", "  text"]);
 		});
 
 		it("should handle multiple ANSI codes", () => {
 			const result = wrapText("\x1b[31m\x1b[1mbold red\x1b[0m\x1b[32m green\x1b[0m", 10);
-			expect(result).toEqual(["\x1b[31m\x1b[1mbold red\x1b[0m\x1b[32m", "green\x1b[0m"]);
+			expect(result).toEqual(["  \x1b[31m\x1b[1mbold red\x1b[0m\x1b[32m", "  green\x1b[0m"]);
 		});
 
 		it("should handle ANSI codes at wrap boundary", () => {
 			const result = wrapText("12345\x1b[31m67890\x1b[0m", 10);
-			expect(result).toEqual(["12345\x1b[31m67890\x1b[0m"]);
+			expect(result).toEqual(["  12345\x1b[31m67890\x1b[0m"]);
 		});
 	});
 
 	describe("edge cases", () => {
 		it("should handle empty string", () => {
 			const result = wrapText("", 20);
-			expect(result).toEqual([""]);
+			expect(result).toEqual(["  "]);
 		});
 
 		it("should handle single character", () => {
 			const result = wrapText("a", 20);
-			expect(result).toEqual(["a"]);
+			expect(result).toEqual(["  a"]);
 		});
 
 		it("should handle width of 1", () => {
 			const result = wrapText("a b c", 1);
-			expect(result).toEqual(["a", "b", "c"]);
+			expect(result).toEqual(["  a", "  b", "  c"]);
 		});
 
 		it("should handle carriage return characters", () => {
 			const result = wrapText("hello\r\nworld", 20);
-			expect(result).toEqual(["hello", "world"]);
+			expect(result).toEqual(["  hello", "  world"]);
 		});
 
 		it("should handle trailing newline", () => {
 			const result = wrapText("hello\n", 20);
-			expect(result).toEqual(["hello"]);
+			expect(result).toEqual(["  hello"]);
 		});
 
 		it("should handle multiple trailing newlines", () => {
 			const result = wrapText("hello\n\n", 20);
-			expect(result).toEqual(["hello", ""]);
+			expect(result).toEqual(["  hello", "  "]);
 		});
 
 		it("should handle leading newline", () => {
 			const result = wrapText("\nhello", 20);
-			expect(result).toEqual(["", "hello"]);
+			expect(result).toEqual(["  ", "  hello"]);
 		});
 	});
 
 	describe("real-world scenarios", () => {
-		it("should wrap thinking output with emoji", () => {
+		it("should wrap thinking output with indicator", () => {
 			const result = wrapText(
-				"💭 Let me analyze this problem step by step to find the best solution",
-				40,
+				"Let me analyze this problem step by step to find the best solution",
+				36,
 			);
 			expect(result.length).toBeGreaterThan(1);
-			expect(result[0]).toBe("💭 Let me analyze this problem step by");
+			expect(result[0]).toBe("  Let me analyze this problem step");
 		});
 
-		it("should wrap response output with emoji", () => {
+		it("should wrap response output with indicator", () => {
 			const result = wrapText(
-				"💬 Here is the solution:\nWe need to implement the fix by updating the wrapText function",
-				30,
+				"Here is the solution:\nWe need to implement the fix by updating the wrapText function",
+				26,
 			);
 			expect(result.length).toBeGreaterThan(1);
 		});
