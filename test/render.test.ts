@@ -1,3 +1,4 @@
+import { stripANSI } from "bun";
 import { describe, expect, it, vi } from "bun:test";
 import { type State } from "../src";
 import * as ansi from "../src/ansi";
@@ -155,6 +156,27 @@ describe("render", () => {
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
 			expect(output).toContain("bash: ls -la");
+		});
+
+		it.only("multiple tool parts separated by inactive parts shouldn't have a blank line", () => {
+			const write = vi.fn();
+			const state = createMockState({
+				accumulatedResponse: [
+					{ key: "xxx", title: "tool", text: "foo" },
+					{ key: "xxx", title: "thinking", text: "need to do the stuff" },
+					{ key: "xxx", title: "tool", text: "bar" },
+					{ key: "xxx", title: "thinking", text: "ok, more stuff" },
+					{ key: "xxx", title: "tool", text: "baz" },
+				],
+				write,
+			});
+
+			render(state);
+
+			const output = stripANSI(write.mock.calls.map((c) => c[0]).join("")).replaceAll("  ", "");
+			console.log(output);
+			expect(output).toContain("foo\nbar\n\n~ ok");
+			expect(output).toContain("stuff\n\nbaz");
 		});
 	});
 

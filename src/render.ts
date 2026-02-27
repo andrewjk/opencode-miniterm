@@ -23,6 +23,7 @@ export function render(state: State, details = false): void {
 
 		if (part.title === "thinking") {
 			if (part.active === false) {
+				// We've already checked all the parts before here
 				break;
 			}
 			part.active = !foundPart;
@@ -35,6 +36,7 @@ export function render(state: State, details = false): void {
 		}
 	}
 
+	let lastPartWasTool = false;
 	for (let i = 0; i < state.accumulatedResponse.length; i++) {
 		const part = state.accumulatedResponse[i];
 		if (!part || !part.active) continue;
@@ -49,13 +51,21 @@ export function render(state: State, details = false): void {
 			const doc = parse(part.text.trimStart(), gfm);
 			const partText = renderToConsole(doc);
 			output += `${ansi.WHITE_BACKGROUND}${ansi.BOLD_BLACK}*${ansi.RESET} ${partText}\n\n`;
-		} else if (part.title === "tool" || part.title === "files") {
+		} else if (part.title === "tool") {
+			// TODO: Show max 10 tool/file lines?
+			if (lastPartWasTool && output.endsWith("\n\n")) {
+				output = output.substring(0, output.length - 1);
+			}
+			output += part.text + "\n\n";
+		} else if (part.title === "files") {
 			// TODO: Show max 10 tool/file lines?
 			output += part.text + "\n\n";
 		} else if (part.title === "todo") {
 			// Show the whole todo list
 			output += part.text + "\n\n";
 		}
+
+		lastPartWasTool = part.title === "tool";
 	}
 
 	if (output) {
