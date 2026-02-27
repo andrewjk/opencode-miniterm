@@ -45,7 +45,9 @@ export function render(state: State, details = false): void {
 		if (part.title === "thinking") {
 			// Show max 10 thinking lines
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
-			output += `💭 ${ansi.BRIGHT_BLACK}${partText}${ansi.RESET}\n\n`;
+			output += "<ocmt-thinking>\n";
+			output += `💭 ${partText}\n\n`;
+			output += "</ocmt-thinking>\n";
 		} else if (part.title === "response") {
 			// Show all response lines
 			const doc = parse(part.text.trimStart(), gfm);
@@ -145,8 +147,18 @@ export function wrapText(text: string, width: number): string[] {
 	let visibleLength = indentLength;
 	let i = 0;
 
+	let inThinking = false;
+
 	const pushLine = () => {
-		lines.push(currentLine);
+		if (currentLine === "  <ocmt-thinking>") {
+			inThinking = true;
+		} else if (currentLine === "  </ocmt-thinking>") {
+			inThinking = false;
+		} else {
+			let text = inThinking ? `${ansi.BRIGHT_BLACK}${currentLine}${ansi.RESET}` : currentLine;
+			lines.push(text);
+		}
+
 		currentLine = INDENT;
 		visibleLength = indentLength;
 	};

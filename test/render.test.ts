@@ -78,7 +78,7 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain(`💭 ${ansi.BRIGHT_BLACK}分析问题${ansi.RESET}`);
+			expect(output).toContain(`${ansi.BRIGHT_BLACK}  💭 分析问题${ansi.RESET}`);
 		});
 
 		it("should only show thinking indicator for last thinking part", () => {
@@ -94,7 +94,7 @@ describe("render", () => {
 			render(state);
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
-			expect(output).toContain(`💭 ${ansi.BRIGHT_BLACK}second${ansi.RESET}`);
+			expect(output).toContain(`${ansi.BRIGHT_BLACK}  💭 second${ansi.RESET}`);
 			expect(output).not.toContain("first");
 		});
 
@@ -120,6 +120,31 @@ describe("render", () => {
 			render(state);
 
 			expect(write).toHaveBeenCalled();
+		});
+
+		it("all thinking lines should be gray", () => {
+			const write = vi.fn();
+			const state = createMockState({
+				accumulatedResponse: [
+					{
+						key: "xxx",
+						title: "thinking",
+						text: "Cookware and bakeware is food preparation equipment, such as cooking pots, pans, baking sheets etc. used in kitchens. Cookware is used on a stove or range cooktop, while bakeware is used in an oven. Some utensils are considered both cookware and bakeware.",
+					},
+				],
+				write,
+			});
+
+			render(state);
+
+			const output = write.mock.calls.map((c) => c[0]).join("");
+			expect(output).toContain(
+				`${ansi.BRIGHT_BLACK}  💭 Cookware and bakeware is food preparation equipment, such as cooking pots, pans, baking sheets etc. used in kitchens. Cookware is used on a stove${ansi.RESET}`,
+			);
+			expect(output).toContain(
+				`${ansi.BRIGHT_BLACK}  or range cooktop, while bakeware is used in an oven. Some utensils are considered both cookware and bakeware.${ansi.RESET}`,
+			);
+			expect(output).not.toContain("first");
 		});
 	});
 
