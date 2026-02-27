@@ -418,9 +418,15 @@ async function main() {
 					if (str) {
 						if (str === " ") {
 							const now = Date.now();
-							if (now - lastSpaceTime < 500 && cursorPosition > 0 && inputBuffer[cursorPosition - 1] === " ") {
+							if (
+								now - lastSpaceTime < 500 &&
+								cursorPosition > 0 &&
+								inputBuffer[cursorPosition - 1] === " "
+							) {
 								inputBuffer =
-									inputBuffer.slice(0, cursorPosition - 1) + ". " + inputBuffer.slice(cursorPosition);
+									inputBuffer.slice(0, cursorPosition - 1) +
+									". " +
+									inputBuffer.slice(cursorPosition);
 								cursorPosition += 1;
 							} else {
 								inputBuffer =
@@ -817,28 +823,26 @@ function processDelta(partID: string, delta: string) {
 }
 
 async function processDiff(diff: FileDiff[]) {
-	let hasChanges = false;
 	const parts: string[] = [];
 	for (const file of diff) {
-		const status = !file.before ? "added" : !file.after ? "deleted" : "modified";
-		const statusIcon = status === "added" ? "A" : status === "modified" ? "M" : "D";
-		const statusLabel =
-			status === "added" ? "added" : status === "modified" ? "modified" : "deleted";
-		const addStr = file.additions > 0 ? `${ansi.GREEN}+${file.additions}${ansi.RESET}` : "";
-		const delStr = file.deletions > 0 ? `${ansi.RED}-${file.deletions}${ansi.RESET}` : "";
-		const stats = [addStr, delStr].filter(Boolean).join(" ");
-		const line = `  ${ansi.BLUE}${statusIcon}${ansi.RESET} ${file.file} (${statusLabel}) ${stats}`;
-		parts.push(line);
-
 		const newAfter = file.after ?? "";
 		const oldAfter = state.lastFileAfter.get(file.file);
 		if (newAfter !== oldAfter) {
-			hasChanges = true;
+			const status = !file.before ? "added" : !file.after ? "deleted" : "modified";
+			const statusIcon = status === "added" ? "A" : status === "modified" ? "M" : "D";
+			const statusLabel =
+				status === "added" ? "added" : status === "modified" ? "modified" : "deleted";
+			const addStr = file.additions > 0 ? `${ansi.GREEN}+${file.additions}${ansi.RESET}` : "";
+			const delStr = file.deletions > 0 ? `${ansi.RED}-${file.deletions}${ansi.RESET}` : "";
+			const stats = [addStr, delStr].filter(Boolean).join(" ");
+			const line = `${ansi.BLUE}${statusIcon}${ansi.RESET} ${file.file} (${statusLabel}) ${stats}`;
+			parts.push(line);
+
 			state.lastFileAfter.set(file.file, newAfter);
 		}
 	}
 
-	if (hasChanges) {
+	if (parts.length > 0) {
 		state.accumulatedResponse.push({ key: "diff", title: "files", text: parts.join("\n") });
 
 		const diffText = ansi.stripAnsiCodes(parts.join("\n"));

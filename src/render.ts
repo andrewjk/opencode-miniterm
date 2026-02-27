@@ -12,11 +12,7 @@ export function render(state: State, details = false): void {
 	}
 
 	// Only show the last (i.e. active) thinking part
-	// Only show the last (i.e. active) tool use
-	// Only show the last files part between parts
 	let foundPart = false;
-	let foundFiles = false;
-	let foundTodo = false;
 	for (let i = state.accumulatedResponse.length - 1; i >= 0; i--) {
 		const part = state.accumulatedResponse[i];
 		if (!part) continue;
@@ -28,16 +24,10 @@ export function render(state: State, details = false): void {
 		if (part.title === "thinking") {
 			part.active = !foundPart;
 			foundPart = true;
-		} else if (part.title === "tool") {
-			part.active = !foundPart;
-		} else if (part.title === "files") {
-			part.active = !foundFiles;
-			foundFiles = true;
-		} else if (part.title === "todo") {
-			part.active = !foundTodo;
-			foundTodo = true;
+		} else if (part.active === false) {
+			// We've already handled all the parts before here
+			break;
 		} else {
-			foundPart = true;
 			part.active = true;
 		}
 	}
@@ -48,17 +38,19 @@ export function render(state: State, details = false): void {
 		if (!part.text.trim()) continue;
 
 		if (part.title === "thinking") {
+			// Show max 10 thinking lines
 			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
 			output += `💭 ${ansi.BRIGHT_BLACK}${partText}${ansi.RESET}\n\n`;
 		} else if (part.title === "response") {
+			// Show all response lines
 			const doc = parse(part.text.trimStart(), gfm);
 			const partText = renderToConsole(doc);
 			output += `💬 ${partText}\n\n`;
-		} else if (part.title === "tool") {
-			output += part.text + "\n\n";
-		} else if (part.title === "files") {
+		} else if (part.title === "tool" || part.title === "files") {
+			// TODO: Show max 10 tool/file lines?
 			output += part.text + "\n\n";
 		} else if (part.title === "todo") {
+			// Show the whole todo list
 			output += part.text + "\n\n";
 		}
 	}
