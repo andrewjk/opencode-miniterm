@@ -799,7 +799,7 @@ async function processToolUse(part: Part) {
 	const toolPart = part as ToolPart;
 	const toolName = toolPart.tool || "unknown";
 	const toolInput = toolPart.state.input["description"] || toolPart.state.input["filePath"] || {};
-	const toolText = `${ansi.BRIGHT_BLACK}$${ansi.RESET} ${toolName}: ${ansi.BRIGHT_BLACK}${toolInput}${ansi.RESET}`;
+	const toolText = `$ ${toolName}: ${ansi.BRIGHT_BLACK}${toolInput}${ansi.RESET}`;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
 		state.accumulatedResponse[state.accumulatedResponse.length - 1]!.text = toolText;
