@@ -5,8 +5,8 @@
     "": {
       "name": "opencode-miniterm",
       "dependencies": {
-        "@opencode-ai/sdk": "^1.2.14",
-        "allmark": "^1.0.0",
+        "@opencode-ai/sdk": "^1.2.15",
+        "allmark": "^1.0.2",
       },
       "devDependencies": {
         "@trivago/prettier-plugin-sort-imports": "^6.0.2",
@@ -71,7 +71,7 @@
 
     "@typescript/native-preview-win32-x64": ["@typescript/native-preview-win32-x64@7.0.0-dev.20260122.2", "", { "os": "win32", "cpu": "x64" }, "sha512-TJH+sSn7vxcGvaSm+fhcpW//dfSGBZGHrxoy0edAbE7UpFf8ub/3cILL5V1pCsF7w3aLNNgVKRpUkowdUgYcPQ=="],
 
-    "allmark": ["allmark@1.0.1", "", { "bin": { "allmark": "dist/bin/index.mjs" } }, "sha512-r4eeGshglWb3G99D4anWSPpieZ9kw9zXHeGd6NXjBbsbq+aCq/7W9hkrqYq0ywlf43ync2KKfmjeTHJum0AHEQ=="],
+    "allmark": ["allmark@1.0.2", "", { "bin": { "allmark": "dist/bin/index.mjs" } }, "sha512-aOhwGPDyqiuyqC24tNAcxkvlNEYWJSSTNC7l0BEJiTg1pItf5ipsQHEQMF92tPgfloRgBm88Li1+21VTkBp4VQ=="],
 
     "balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
 
