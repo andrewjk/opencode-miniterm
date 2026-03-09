@@ -6,7 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { glob } from "node:fs/promises";
 import { stat } from "node:fs/promises";
 import { open } from "node:fs/promises";
-import readline from "node:readline";
+import readline, { type Key } from "node:readline";
 import * as ansi from "./ansi";
 import agentsCommand from "./commands/agents";
 import debugCommand from "./commands/debug";
@@ -135,12 +135,11 @@ async function main() {
 
 		await updateSessionTitle();
 
-		const sessionHistory = await loadSessionHistory();
-
-		const activeDisplay = await getActiveDisplay(client);
+		history = await loadSessionHistory();
 
 		process.stdout.write(`${ansi.CLEAR_SCREEN_UP}${ansi.CLEAR_FROM_CURSOR}`);
 		process.stdout.write(ansi.CURSOR_HOME);
+		const activeDisplay = await getActiveDisplay(client);
 		console.log(activeDisplay);
 		if (!isNewSession) {
 			console.log("Resumed last session");
@@ -158,296 +157,8 @@ async function main() {
 			process.stdin.setRawMode(true);
 		}
 
-		let inputBuffer = "";
-		let cursorPosition = 0;
-		let completions: string[] = [];
-		let history: string[] = sessionHistory;
-		let historyIndex = history.length;
-		let selectedCompletion = 0;
-		let showCompletions = false;
-		let completionCycling = false;
-		let lastSpaceTime = 0;
-		let currentInputBuffer: string | null = null;
-
-		const getCompletions = async (text: string): Promise<string[]> => {
-			if (text.startsWith("/")) {
-				return ["/help", ...SLASH_COMMANDS.map((c) => c.name)].filter((cmd) =>
-					cmd.startsWith(text),
-				);
-			}
-
-			const atMatch = text.match(/(@[^\s]*)$/);
-			if (atMatch) {
-				const prefix = atMatch[0]!;
-				const searchPattern = prefix.slice(1);
-				const pattern = searchPattern.includes("/")
-					? searchPattern + "*"
-					: "**/" + searchPattern + "*";
-				const files = await getFileCompletions(pattern);
-				return files.map((file: string) => text.replace(/@[^\s]*$/, "@" + file));
-			}
-
-			return [];
-		};
-
-		let oldWrappedRows = 0;
-		const renderLine = (): void => {
-			const consoleWidth = process.stdout.columns || 80;
-			const totalLength = 2 + inputBuffer.length + 1;
-			const wrappedRows = Math.floor(totalLength / consoleWidth);
-			readline.cursorTo(process.stdout, 0);
-			if (oldWrappedRows > 0) {
-				readline.moveCursor(process.stdout, 0, -oldWrappedRows);
-			}
-			readline.clearScreenDown(process.stdout);
-			oldWrappedRows = wrappedRows;
-
-			writePrompt();
-			process.stdout.write(inputBuffer);
-
-			const totalPosition = 2 + cursorPosition;
-			const targetRow = Math.floor(totalPosition / consoleWidth);
-			const targetCol = totalPosition % consoleWidth;
-
-			const endCol = (2 + inputBuffer.length) % consoleWidth;
-			const endRow = Math.floor((2 + inputBuffer.length) / consoleWidth);
-
-			const deltaCol = targetCol - endCol;
-			let deltaRow = targetRow - endRow;
-			if (deltaCol !== 0 && endCol === 0) {
-				deltaRow += 1;
-			}
-
-			readline.moveCursor(process.stdout, deltaCol, deltaRow);
-		};
-
-		const handleTab = async (): Promise<void> => {
-			const potentialCompletions = await getCompletions(inputBuffer);
-
-			if (potentialCompletions.length === 0) {
-				completionCycling = false;
-				return;
-			}
-
-			if (!completionCycling) {
-				completions = potentialCompletions;
-				selectedCompletion = 0;
-				completionCycling = true;
-				inputBuffer = completions[0]!;
-				cursorPosition = inputBuffer.length;
-				renderLine();
-			} else {
-				selectedCompletion = (selectedCompletion + 1) % completions.length;
-				inputBuffer = completions[selectedCompletion]!;
-				cursorPosition = inputBuffer.length;
-				renderLine();
-			}
-		};
-
-		const acceptInput = async (): Promise<void> => {
-			process.stdout.write("\n");
-
-			const input = inputBuffer.trim();
-
-			inputBuffer = "";
-			cursorPosition = 0;
-			showCompletions = false;
-			completionCycling = false;
-			completions = [];
-			currentInputBuffer = null;
-
-			if (input) {
-				if (history[history.length - 1] !== input) {
-					history.push(input);
-				}
-				historyIndex = history.length;
-				try {
-					if (input === "/help") {
-						const maxCommandLength = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
-						for (const cmd of SLASH_COMMANDS) {
-							const padding = " ".repeat(maxCommandLength - cmd.name.length + 2);
-							console.log(
-								`  ${ansi.BRIGHT_WHITE}${cmd.name}${ansi.RESET}${padding}${ansi.BRIGHT_BLACK}${cmd.description}${ansi.RESET}`,
-							);
-						}
-						console.log();
-						return;
-					} else if (input.startsWith("/")) {
-						const parts = input.match(/(\/[^\s]+)\s*(.*)/)!;
-						if (parts) {
-							const commandName = parts[1];
-							const extra = parts[2]?.trim();
-							for (let command of SLASH_COMMANDS) {
-								if (command.name === commandName) {
-									await command.run(client, state, extra);
-									return;
-								}
-							}
-						}
-						return;
-					}
-
-					isRequestActive = true;
-					process.stdout.write(ansi.CURSOR_HIDE);
-					startAnimation();
-					if (isLoggingEnabled()) {
-						console.log(`📝 ${ansi.BRIGHT_BLACK}Logging to ${getLogDir()}\n${ansi.RESET}`);
-					}
-					await sendMessage(state.sessionID, input);
-					isRequestActive = false;
-				} catch (error: any) {
-					isRequestActive = false;
-					if (error.message !== "Request cancelled") {
-						stopAnimation();
-						console.error("Error:", error.message);
-					}
-				}
-			}
-
-			if (!SLASH_COMMANDS.find((c) => c.running)) {
-				writePrompt();
-			}
-		};
-
 		process.stdin.on("keypress", async (str, key) => {
-			for (let command of SLASH_COMMANDS) {
-				if (command.running && command.handleKey) {
-					await command.handleKey(client, key, str);
-					return;
-				}
-			}
-
-			switch (key.name) {
-				case "up": {
-					if (historyIndex === history.length) {
-						currentInputBuffer = inputBuffer;
-					}
-					if (history.length > 0) {
-						if (historyIndex > 0) {
-							historyIndex--;
-							inputBuffer = history[historyIndex]!;
-						} else {
-							historyIndex = Math.max(-1, historyIndex - 1);
-							inputBuffer = "";
-						}
-						cursorPosition = inputBuffer.length;
-						renderLine();
-					}
-					return;
-				}
-				case "down": {
-					if (history.length > 0) {
-						if (historyIndex < history.length - 1) {
-							historyIndex++;
-							inputBuffer = history[historyIndex]!;
-						} else {
-							historyIndex = history.length;
-							inputBuffer = currentInputBuffer || "";
-							currentInputBuffer = null;
-						}
-						cursorPosition = inputBuffer.length;
-						renderLine();
-					}
-					return;
-				}
-				case "tab": {
-					if (!completionCycling) {
-						await handleTab();
-					}
-					if (completionCycling && completions.length > 0) {
-						await handleTab();
-					}
-					return;
-				}
-				case "escape": {
-					if (isRequestActive) {
-						if (state.sessionID) {
-							client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
-						}
-						stopAnimation();
-						process.stdout.write(ansi.CURSOR_SHOW);
-						process.stdout.write(`\r  ${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
-						writePrompt();
-						isRequestActive = false;
-					} else {
-						inputBuffer = "";
-						cursorPosition = 0;
-						currentInputBuffer = null;
-						renderLine();
-					}
-					return;
-				}
-				case "return": {
-					await acceptInput();
-					return;
-				}
-				case "backspace": {
-					if (cursorPosition > 0) {
-						inputBuffer =
-							inputBuffer.slice(0, cursorPosition - 1) + inputBuffer.slice(cursorPosition);
-						cursorPosition--;
-						currentInputBuffer = null;
-					}
-					break;
-				}
-				case "delete": {
-					if (cursorPosition < inputBuffer.length) {
-						inputBuffer =
-							inputBuffer.slice(0, cursorPosition) + inputBuffer.slice(cursorPosition + 1);
-						currentInputBuffer = null;
-					}
-					break;
-				}
-				case "left": {
-					if (key.meta) {
-						cursorPosition = findPreviousWordBoundary(inputBuffer, cursorPosition);
-					} else if (cursorPosition > 0) {
-						cursorPosition--;
-					}
-					break;
-				}
-				case "right": {
-					if (key.meta) {
-						cursorPosition = findNextWordBoundary(inputBuffer, cursorPosition);
-					} else if (cursorPosition < inputBuffer.length) {
-						cursorPosition++;
-					}
-					break;
-				}
-				default: {
-					if (str) {
-						if (str === " ") {
-							const now = Date.now();
-							if (
-								now - lastSpaceTime < 500 &&
-								cursorPosition > 0 &&
-								inputBuffer[cursorPosition - 1] === " "
-							) {
-								inputBuffer =
-									inputBuffer.slice(0, cursorPosition - 1) +
-									". " +
-									inputBuffer.slice(cursorPosition);
-								cursorPosition += 1;
-							} else {
-								inputBuffer =
-									inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
-								cursorPosition += str.length;
-							}
-							lastSpaceTime = now;
-						} else {
-							inputBuffer =
-								inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
-							cursorPosition += str.length;
-						}
-						currentInputBuffer = null;
-					}
-				}
-			}
-
-			showCompletions = false;
-			completionCycling = false;
-			completions = [];
-			renderLine();
+			handleKeyPress(str, key);
 		});
 
 		writePrompt();
@@ -455,6 +166,289 @@ async function main() {
 		console.error("Error:", error.message);
 		server?.close();
 		process.exit(1);
+	}
+}
+
+// ====================
+// HANDLE INPUT
+// ====================
+
+let inputBuffer = "";
+let cursorPosition = 0;
+let completions: string[] = [];
+let history: string[] = [];
+let historyIndex = history.length;
+let selectedCompletion = 0;
+let completionCycling = false;
+let lastSpaceTime = 0;
+let currentInputBuffer: string | null = null;
+
+let oldWrappedRows = 0;
+function renderLine(): void {
+	const consoleWidth = process.stdout.columns || 80;
+	const totalLength = 2 + inputBuffer.length + 1;
+	const wrappedRows = Math.floor(totalLength / consoleWidth);
+	readline.cursorTo(process.stdout, 0);
+	if (oldWrappedRows > 0) {
+		readline.moveCursor(process.stdout, 0, -oldWrappedRows);
+	}
+	readline.clearScreenDown(process.stdout);
+	oldWrappedRows = wrappedRows;
+
+	writePrompt();
+	process.stdout.write(inputBuffer);
+
+	const totalPosition = 2 + cursorPosition;
+	const targetRow = Math.floor(totalPosition / consoleWidth);
+	const targetCol = totalPosition % consoleWidth;
+
+	const endCol = (2 + inputBuffer.length) % consoleWidth;
+	const endRow = Math.floor((2 + inputBuffer.length) / consoleWidth);
+
+	const deltaCol = targetCol - endCol;
+	let deltaRow = targetRow - endRow;
+	if (deltaCol !== 0 && endCol === 0) {
+		deltaRow += 1;
+	}
+
+	readline.moveCursor(process.stdout, deltaCol, deltaRow);
+}
+
+async function handleKeyPress(str: string, key: Key) {
+	for (let command of SLASH_COMMANDS) {
+		if (command.running && command.handleKey) {
+			await command.handleKey(client, key, str);
+			return;
+		}
+	}
+
+	switch (key.name) {
+		case "up": {
+			if (historyIndex === history.length) {
+				currentInputBuffer = inputBuffer;
+			}
+			if (history.length > 0) {
+				if (historyIndex > 0) {
+					historyIndex--;
+					inputBuffer = history[historyIndex]!;
+				} else {
+					historyIndex = Math.max(-1, historyIndex - 1);
+					inputBuffer = "";
+				}
+				cursorPosition = inputBuffer.length;
+				renderLine();
+			}
+			return;
+		}
+		case "down": {
+			if (history.length > 0) {
+				if (historyIndex < history.length - 1) {
+					historyIndex++;
+					inputBuffer = history[historyIndex]!;
+				} else {
+					historyIndex = history.length;
+					inputBuffer = currentInputBuffer || "";
+					currentInputBuffer = null;
+				}
+				cursorPosition = inputBuffer.length;
+				renderLine();
+			}
+			return;
+		}
+		case "tab": {
+			if (!completionCycling) {
+				await handleTab();
+			}
+			if (completionCycling && completions.length > 0) {
+				await handleTab();
+			}
+			return;
+		}
+		case "escape": {
+			if (isRequestActive) {
+				if (state.sessionID) {
+					client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
+				}
+				stopAnimation();
+				process.stdout.write(ansi.CURSOR_SHOW);
+				process.stdout.write(`\r  ${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
+				writePrompt();
+				isRequestActive = false;
+			} else {
+				inputBuffer = "";
+				cursorPosition = 0;
+				currentInputBuffer = null;
+				renderLine();
+			}
+			return;
+		}
+		case "return": {
+			await acceptInput();
+			return;
+		}
+		case "backspace": {
+			if (cursorPosition > 0) {
+				inputBuffer = inputBuffer.slice(0, cursorPosition - 1) + inputBuffer.slice(cursorPosition);
+				cursorPosition--;
+				currentInputBuffer = null;
+			}
+			break;
+		}
+		case "delete": {
+			if (cursorPosition < inputBuffer.length) {
+				inputBuffer = inputBuffer.slice(0, cursorPosition) + inputBuffer.slice(cursorPosition + 1);
+				currentInputBuffer = null;
+			}
+			break;
+		}
+		case "left": {
+			if (key.meta) {
+				cursorPosition = findPreviousWordBoundary(inputBuffer, cursorPosition);
+			} else if (cursorPosition > 0) {
+				cursorPosition--;
+			}
+			break;
+		}
+		case "right": {
+			if (key.meta) {
+				cursorPosition = findNextWordBoundary(inputBuffer, cursorPosition);
+			} else if (cursorPosition < inputBuffer.length) {
+				cursorPosition++;
+			}
+			break;
+		}
+		default: {
+			if (str === " ") {
+				const now = Date.now();
+				if (
+					now - lastSpaceTime < 500 &&
+					cursorPosition > 0 &&
+					inputBuffer[cursorPosition - 1] === " "
+				) {
+					inputBuffer =
+						inputBuffer.slice(0, cursorPosition - 1) + ". " + inputBuffer.slice(cursorPosition);
+					cursorPosition += 1;
+				} else {
+					inputBuffer =
+						inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
+					cursorPosition += str.length;
+				}
+				lastSpaceTime = now;
+			} else if (str) {
+				inputBuffer =
+					inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
+				cursorPosition += str.length;
+			}
+			currentInputBuffer = null;
+		}
+	}
+
+	completionCycling = false;
+	completions = [];
+	renderLine();
+}
+
+async function handleTab(): Promise<void> {
+	const potentialCompletions = await getCompletions(inputBuffer);
+
+	if (potentialCompletions.length === 0) {
+		completionCycling = false;
+		return;
+	}
+
+	if (!completionCycling) {
+		completions = potentialCompletions;
+		selectedCompletion = 0;
+		completionCycling = true;
+		inputBuffer = completions[0]!;
+		cursorPosition = inputBuffer.length;
+		renderLine();
+	} else {
+		selectedCompletion = (selectedCompletion + 1) % completions.length;
+		inputBuffer = completions[selectedCompletion]!;
+		cursorPosition = inputBuffer.length;
+		renderLine();
+	}
+}
+
+async function getCompletions(text: string): Promise<string[]> {
+	if (text.startsWith("/")) {
+		return ["/help", ...SLASH_COMMANDS.map((c) => c.name)].filter((cmd) => cmd.startsWith(text));
+	}
+
+	const atMatch = text.match(/(@[^\s]*)$/);
+	if (atMatch) {
+		const prefix = atMatch[0]!;
+		const searchPattern = prefix.slice(1);
+		const pattern = searchPattern.includes("/") ? searchPattern + "*" : "**/" + searchPattern + "*";
+		const files = await getFileCompletions(pattern);
+		return files.map((file: string) => text.replace(/@[^\s]*$/, "@" + file));
+	}
+
+	return [];
+}
+
+async function acceptInput(): Promise<void> {
+	process.stdout.write("\n");
+
+	const input = inputBuffer.trim();
+
+	inputBuffer = "";
+	cursorPosition = 0;
+	completionCycling = false;
+	completions = [];
+	currentInputBuffer = null;
+
+	if (input) {
+		if (history[history.length - 1] !== input) {
+			history.push(input);
+		}
+		historyIndex = history.length;
+		try {
+			if (input === "/help") {
+				const maxCommandLength = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
+				for (const cmd of SLASH_COMMANDS) {
+					const padding = " ".repeat(maxCommandLength - cmd.name.length + 2);
+					console.log(
+						`  ${ansi.BRIGHT_WHITE}${cmd.name}${ansi.RESET}${padding}${ansi.BRIGHT_BLACK}${cmd.description}${ansi.RESET}`,
+					);
+				}
+				console.log();
+				return;
+			} else if (input.startsWith("/")) {
+				const parts = input.match(/(\/[^\s]+)\s*(.*)/)!;
+				if (parts) {
+					const commandName = parts[1];
+					const extra = parts[2]?.trim();
+					for (let command of SLASH_COMMANDS) {
+						if (command.name === commandName) {
+							await command.run(client, state, extra);
+							return;
+						}
+					}
+				}
+				return;
+			}
+
+			isRequestActive = true;
+			process.stdout.write(ansi.CURSOR_HIDE);
+			startAnimation();
+			if (isLoggingEnabled()) {
+				console.log(`📝 ${ansi.BRIGHT_BLACK}Logging to ${getLogDir()}\n${ansi.RESET}`);
+			}
+			await sendMessage(state.sessionID, input);
+			isRequestActive = false;
+		} catch (error: any) {
+			isRequestActive = false;
+			if (error.message !== "Request cancelled") {
+				stopAnimation();
+				console.error("Error:", error.message);
+			}
+		}
+	}
+
+	if (!SLASH_COMMANDS.find((c) => c.running)) {
+		writePrompt();
 	}
 }
 
