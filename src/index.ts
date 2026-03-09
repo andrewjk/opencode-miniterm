@@ -46,6 +46,7 @@ const SLASH_COMMANDS = [
 	runCommand,
 ];
 
+let server: Awaited<ReturnType<typeof createOpencodeServer>> | undefined;
 let client: ReturnType<typeof createOpencodeClient>;
 
 let processing = true;
@@ -92,7 +93,6 @@ async function main() {
 
 	console.log(`\n${ansi.BRIGHT_BLACK}Connecting to OpenCode server...${ansi.RESET}\n`);
 
-	let server: Awaited<ReturnType<typeof createOpencodeServer>> | undefined;
 	try {
 		server = await createOpencodeServer();
 	} catch {
@@ -112,11 +112,8 @@ async function main() {
 	});
 
 	process.on("SIGINT", () => {
-		console.log("\nShutting down...");
-		process.stdout.write(ansi.ENABLE_LINE_WRAP);
-		saveConfig();
-		server?.close();
-		process.exit(0);
+		process.stdout.write("\n");
+		shutdown();
 	});
 
 	try {
@@ -230,6 +227,12 @@ function renderLine(): void {
 }
 
 async function handleKeyPress(str: string, key: Key) {
+	if (key.ctrl && key.name === "c") {
+		process.stdout.write("\n");
+		shutdown();
+		return;
+	}
+
 	for (let command of SLASH_COMMANDS) {
 		if (command.running && command.handleKey) {
 			await command.handleKey(client, key, str);
@@ -421,6 +424,7 @@ async function acceptInput(): Promise<void> {
 		historyIndex = history.length;
 		try {
 			if (input === "/help") {
+				process.stdout.write("\n");
 				const maxCommandLength = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
 				for (const cmd of SLASH_COMMANDS) {
 					const padding = " ".repeat(maxCommandLength - cmd.name.length + 2);
@@ -429,6 +433,7 @@ async function acceptInput(): Promise<void> {
 					);
 				}
 				console.log();
+				writePrompt();
 				return;
 			} else if (input.startsWith("/")) {
 				const parts = input.match(/(\/[^\s]+)\s*(.*)/)!;
@@ -437,7 +442,9 @@ async function acceptInput(): Promise<void> {
 					const extra = parts[2]?.trim();
 					for (let command of SLASH_COMMANDS) {
 						if (command.name === commandName) {
+							process.stdout.write("\n");
 							await command.run(client, state, extra);
+							writePrompt();
 							return;
 						}
 					}
@@ -446,6 +453,7 @@ async function acceptInput(): Promise<void> {
 			}
 
 			isRequestActive = true;
+			process.stdout.write("\n");
 			process.stdout.write(ansi.CURSOR_HIDE);
 			startAnimation();
 			if (isLoggingEnabled()) {
@@ -460,10 +468,6 @@ async function acceptInput(): Promise<void> {
 				console.error("Error:", error.message);
 			}
 		}
-	}
-
-	if (!SLASH_COMMANDS.find((c) => c.running)) {
-		writePrompt();
 	}
 }
 
@@ -613,11 +617,6 @@ async function sendMessage(sessionID: string, message: string) {
 		console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
 
 		writePrompt();
-
-		// HACK:
-		setTimeout(() => {
-			readline.cursorTo(process.stdout, 2);
-		}, 200);
 	} catch (error: any) {
 		throw error;
 	} finally {
@@ -681,7 +680,6 @@ async function processEvent(event: Event): Promise<void> {
 					retryInterval = null;
 				}
 				writePrompt();
-				readline.cursorTo(process.stdout, 2);
 			}
 			if (event.type === "session.status" && event.properties.status.type === "retry") {
 				const message = event.properties.status.message;
@@ -890,6 +888,18 @@ function findLastPart(title: string) {
 			return part;
 		}
 	}
+}
+
+function shutdown() {
+	if (process.stdin.setRawMode) {
+		process.stdin.setRawMode(false);
+	}
+	process.stdin.destroy();
+	process.stdout.write(ansi.ENABLE_LINE_WRAP);
+	saveConfig();
+	server?.close();
+	console.log(`\n${ansi.BRIGHT_BLACK}Goodbye!${ansi.RESET}`);
+	process.exit(0);
 }
 
 // ====================
