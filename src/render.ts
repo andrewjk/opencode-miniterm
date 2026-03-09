@@ -43,8 +43,12 @@ export function render(state: State, details = false): void {
 		if (!part.text.trim()) continue;
 
 		if (part.title === "thinking") {
+			const doc = parse(part.text.trimStart(), gfm);
+			let partText = ansi.stripAnsiCodes(renderToConsole(doc));
+
 			// Show max 10 thinking lines
-			const partText = details ? part.text.trimStart() : lastThinkingLines(part.text.trimStart());
+			partText = details ? partText : lastThinkingLines(partText);
+
 			output += "<ocmt-thinking>\n";
 			output += `💭 ${partText}\n\n`;
 			output += "</ocmt-thinking>\n";
@@ -221,19 +225,27 @@ export function wrapText(text: string, width: number): string[] {
 		}
 	};
 
+	let atLineStart = true;
+	let lineIndent = "";
 	while (i < text.length) {
 		const char = text[i];
 
 		if (char === "\n") {
 			pushLine();
+			atLineStart = true;
+			lineIndent = "";
 			i++;
 		} else if (char === "\r") {
 			i++;
 		} else if (char === " " || char === "\t") {
+			if (atLineStart) {
+				lineIndent += char;
+			}
 			i++;
 		} else {
-			let word = "";
-			let wordVisibleLength = 0;
+			let word = lineIndent;
+			let wordVisibleLength = lineIndent.length;
+			atLineStart = false;
 
 			while (i < text.length) {
 				const char = text[i];
@@ -256,6 +268,7 @@ export function wrapText(text: string, width: number): string[] {
 			}
 
 			addWord(word, wordVisibleLength);
+			atLineStart = false;
 		}
 	}
 

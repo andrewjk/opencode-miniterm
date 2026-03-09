@@ -344,6 +344,11 @@ describe("wrapText", () => {
 			const result = wrapText("line1\n\nline3", 20);
 			expect(result).toEqual(["  line1", "  ", "  line3"]);
 		});
+
+		it("should preserve indents", () => {
+			const result = wrapText("line1\n  line2\n line3", 20);
+			expect(result).toEqual(["  line1", "    line2", "   line3"]);
+		});
 	});
 
 	describe("ANSI codes", () => {
