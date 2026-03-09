@@ -113,6 +113,7 @@ async function main() {
 
 	process.on("SIGINT", () => {
 		console.log("\nShutting down...");
+		process.stdout.write(ansi.ENABLE_LINE_WRAP);
 		saveConfig();
 		server?.close();
 		process.exit(0);
@@ -149,13 +150,14 @@ async function main() {
 
 		const rl = readline.createInterface({
 			input: process.stdin,
-			output: process.stdout,
+			output: undefined,
 		});
 
 		readline.emitKeypressEvents(process.stdin);
 		if (process.stdin.setRawMode) {
 			process.stdin.setRawMode(true);
 		}
+		process.stdout.write(ansi.DISABLE_LINE_WRAP);
 
 		process.stdin.on("keypress", async (str, key) => {
 			handleKeyPress(str, key);
@@ -186,32 +188,45 @@ let currentInputBuffer: string | null = null;
 let oldWrappedRows = 0;
 function renderLine(): void {
 	const consoleWidth = process.stdout.columns || 80;
-	const totalLength = 2 + inputBuffer.length + 1;
-	const wrappedRows = Math.floor(totalLength / consoleWidth);
+
 	readline.cursorTo(process.stdout, 0);
 	if (oldWrappedRows > 0) {
 		readline.moveCursor(process.stdout, 0, -oldWrappedRows);
 	}
 	readline.clearScreenDown(process.stdout);
-	oldWrappedRows = wrappedRows;
 
 	writePrompt();
-	process.stdout.write(inputBuffer);
 
-	const totalPosition = 2 + cursorPosition;
-	const targetRow = Math.floor(totalPosition / consoleWidth);
-	const targetCol = totalPosition % consoleWidth;
-
-	const endCol = (2 + inputBuffer.length) % consoleWidth;
-	const endRow = Math.floor((2 + inputBuffer.length) / consoleWidth);
-
-	const deltaCol = targetCol - endCol;
-	let deltaRow = targetRow - endRow;
-	if (deltaCol !== 0 && endCol === 0) {
-		deltaRow += 1;
+	let currentCol = 2;
+	let row = 0;
+	for (let i = 0; i < inputBuffer.length; i++) {
+		if (currentCol >= consoleWidth) {
+			process.stdout.write("\n");
+			currentCol = 0;
+			row++;
+		}
+		process.stdout.write(inputBuffer[i]!);
+		currentCol++;
 	}
+	oldWrappedRows = row;
 
-	readline.moveCursor(process.stdout, deltaCol, deltaRow);
+	let targetRow = 0;
+	let targetCol = 0;
+	let pos = 2;
+	for (let i = 0; i < cursorPosition; i++) {
+		if (pos >= consoleWidth) {
+			targetRow++;
+			pos = 0;
+		}
+		pos++;
+	}
+	targetCol = pos;
+
+	readline.cursorTo(process.stdout, 0);
+	if (targetRow > 0) {
+		process.stdout.write(`\x1b[${targetRow}B`);
+	}
+	readline.cursorTo(process.stdout, targetCol);
 }
 
 async function handleKeyPress(str: string, key: Key) {
