@@ -193,7 +193,6 @@ describe("render", () => {
 			render(state);
 
 			const output = stripANSI(write.mock.calls.map((c) => c[0]).join("")).replaceAll("  ", "");
-			console.log(output);
 			expect(output).toContain("foo\nbar\n\n💭 ok");
 			expect(output).toContain("stuff\n\nbaz");
 		});
