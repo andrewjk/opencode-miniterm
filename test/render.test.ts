@@ -346,8 +346,8 @@ describe("wrapText", () => {
 		});
 
 		it("should preserve indents", () => {
-			const result = wrapText("line1\n  line2\n line3", 20);
-			expect(result).toEqual(["  line1", "    line2", "   line3"]);
+			const result = wrapText("line1\n  line2 extra\n line3", 20);
+			expect(result).toEqual(["  line1", "    line2 extra", "   line3"]);
 		});
 	});
 

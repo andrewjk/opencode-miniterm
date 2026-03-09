@@ -269,6 +269,7 @@ export function wrapText(text: string, width: number): string[] {
 
 			addWord(word, wordVisibleLength);
 			atLineStart = false;
+			lineIndent = "";
 		}
 	}
 
