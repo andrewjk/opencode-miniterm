@@ -182,48 +182,55 @@ let completionCycling = false;
 let lastSpaceTime = 0;
 let currentInputBuffer: string | null = null;
 
+let count = 0;
 let oldWrappedRows = 0;
+let oldCursorRow = 0;
 function renderLine(): void {
 	const consoleWidth = process.stdout.columns || 80;
 
 	readline.cursorTo(process.stdout, 0);
+
+	// Ensure the cursor is at the end of the old input
+	if (cursorPosition < inputBuffer.length) {
+		readline.moveCursor(process.stdout, 0, oldWrappedRows - oldCursorRow);
+	}
+
+	// Clear the old input
 	if (oldWrappedRows > 0) {
 		readline.moveCursor(process.stdout, 0, -oldWrappedRows);
 	}
 	readline.clearScreenDown(process.stdout);
+	readline.cursorTo(process.stdout, 2);
 
+	// Write the prompt
 	writePrompt();
 
+	// Write the new input buffer
+	let renderExtent = Math.max(cursorPosition + 1, inputBuffer.length);
 	let currentCol = 2;
-	let row = 0;
-	for (let i = 0; i < inputBuffer.length; i++) {
+	let newWrappedRows = 0;
+	for (let i = 0; i < renderExtent; i++) {
 		if (currentCol >= consoleWidth) {
 			process.stdout.write("\n");
 			currentCol = 0;
-			row++;
+			newWrappedRows++;
 		}
-		process.stdout.write(inputBuffer[i]!);
+		if (i < inputBuffer.length) {
+			process.stdout.write(inputBuffer[i]!);
+		}
 		currentCol++;
 	}
-	oldWrappedRows = row;
 
-	let targetRow = 0;
-	let targetCol = 0;
-	let pos = 2;
-	for (let i = 0; i < cursorPosition; i++) {
-		if (pos >= consoleWidth) {
-			targetRow++;
-			pos = 0;
-		}
-		pos++;
-	}
-	targetCol = pos;
+	let absolutePos = 2 + cursorPosition;
+	let newCursorRow = Math.floor(absolutePos / consoleWidth);
+	let newCursorCol = absolutePos % consoleWidth;
 
 	readline.cursorTo(process.stdout, 0);
-	if (targetRow > 0) {
-		process.stdout.write(`\x1b[${targetRow}B`);
-	}
-	readline.cursorTo(process.stdout, targetCol);
+	readline.moveCursor(process.stdout, 0, -1 * (newWrappedRows - newCursorRow));
+	readline.cursorTo(process.stdout, newCursorCol);
+
+	oldWrappedRows = newWrappedRows;
+	oldCursorRow = newCursorRow;
 }
 
 async function handleKeyPress(str: string, key: Key) {
