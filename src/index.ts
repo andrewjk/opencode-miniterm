@@ -805,7 +805,12 @@ async function processText(part: Part) {
 async function processToolUse(part: Part) {
 	const toolPart = part as ToolPart;
 	const toolName = toolPart.tool || "unknown";
-	const toolInput = toolPart.state.input["description"] || toolPart.state.input["filePath"] || {};
+	const toolInput =
+		toolPart.state.input["description"] ||
+		toolPart.state.input["filePath"] ||
+		toolPart.state.input["path"] ||
+		// TODO: more state.input props...
+		"...";
 	const toolText = `$ ${toolName}: ${ansi.BRIGHT_BLACK}${toolInput}${ansi.RESET}`;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
@@ -835,14 +840,11 @@ async function processDiff(diff: FileDiff[]) {
 		const newAfter = file.after ?? "";
 		const oldAfter = state.lastFileAfter.get(file.file);
 		if (newAfter !== oldAfter) {
-			const status = !file.before ? "added" : !file.after ? "deleted" : "modified";
-			const statusIcon = status === "added" ? "A" : status === "modified" ? "M" : "D";
-			const statusLabel =
-				status === "added" ? "added" : status === "modified" ? "modified" : "deleted";
+			const statusIcon = !file.before ? "A" : !file.after ? "D" : "M";
 			const addStr = file.additions > 0 ? `${ansi.GREEN}+${file.additions}${ansi.RESET}` : "";
 			const delStr = file.deletions > 0 ? `${ansi.RED}-${file.deletions}${ansi.RESET}` : "";
 			const stats = [addStr, delStr].filter(Boolean).join(" ");
-			const line = `${ansi.BLUE}${statusIcon}${ansi.RESET} ${file.file} (${statusLabel}) ${stats}`;
+			const line = `${ansi.BLUE}${statusIcon}${ansi.RESET} ${file.file} ${stats}`;
 			parts.push(line);
 
 			state.lastFileAfter.set(file.file, newAfter);
@@ -876,7 +878,7 @@ async function processTodos(todos: Todo[]) {
 	state.accumulatedResponse.push({ key: "todo", title: "files", text: todoListText });
 
 	const cleanTodoText = ansi.stripAnsiCodes(todoListText);
-	await writeToLog(`${cleanTodoText}\n\n`);
+	await writeToLog(`${cleanTodoText}\n`);
 
 	render(state);
 }
