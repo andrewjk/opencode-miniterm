@@ -182,34 +182,50 @@ let completionCycling = false;
 let lastSpaceTime = 0;
 let currentInputBuffer: string | null = null;
 
-let count = 0;
+let oldInputBuffer = "";
 let oldWrappedRows = 0;
 let oldCursorRow = 0;
 function renderLine(): void {
 	const consoleWidth = process.stdout.columns || 80;
 
+	// Move to the start of the line (i.e. the prompt position)
 	readline.cursorTo(process.stdout, 0);
-
-	// Ensure the cursor is at the end of the old input
-	if (cursorPosition < inputBuffer.length) {
-		readline.moveCursor(process.stdout, 0, oldWrappedRows - oldCursorRow);
-	}
-
-	// Clear the old input
 	if (oldWrappedRows > 0) {
+		if (cursorPosition < inputBuffer.length) {
+			readline.moveCursor(process.stdout, 0, oldWrappedRows - oldCursorRow);
+		}
 		readline.moveCursor(process.stdout, 0, -oldWrappedRows);
 	}
-	readline.clearScreenDown(process.stdout);
-	readline.cursorTo(process.stdout, 2);
 
-	// Write the prompt
-	writePrompt();
-
-	// Write the new input buffer
-	let renderExtent = Math.max(cursorPosition + 1, inputBuffer.length);
+	// Find the position where the input has changed (i.e. where the user has
+	// typed something)
+	let start = 0;
 	let currentCol = 2;
 	let newWrappedRows = 0;
-	for (let i = 0; i < renderExtent; i++) {
+	for (let i = 0; i < Math.min(oldInputBuffer.length, inputBuffer.length); i++) {
+		if (oldInputBuffer[i] !== inputBuffer[i]) {
+			break;
+		}
+		if (currentCol >= consoleWidth) {
+			readline.moveCursor(process.stdout, 0, 1);
+			currentCol = 0;
+			newWrappedRows++;
+		}
+		currentCol++;
+		start++;
+	}
+
+	// Clear the old, changed, input
+	readline.moveCursor(process.stdout, currentCol, 0);
+	readline.clearScreenDown(process.stdout);
+
+	if (start === 0) {
+		writePrompt();
+	}
+
+	// Write the changes from the new input buffer
+	let renderExtent = Math.max(cursorPosition + 1, inputBuffer.length);
+	for (let i = start; i < renderExtent; i++) {
 		if (currentCol >= consoleWidth) {
 			process.stdout.write("\n");
 			currentCol = 0;
@@ -221,14 +237,15 @@ function renderLine(): void {
 		currentCol++;
 	}
 
+	// Calculate and move to the cursor's position
 	let absolutePos = 2 + cursorPosition;
 	let newCursorRow = Math.floor(absolutePos / consoleWidth);
 	let newCursorCol = absolutePos % consoleWidth;
-
 	readline.cursorTo(process.stdout, 0);
 	readline.moveCursor(process.stdout, 0, -1 * (newWrappedRows - newCursorRow));
 	readline.cursorTo(process.stdout, newCursorCol);
 
+	oldInputBuffer = inputBuffer;
 	oldWrappedRows = newWrappedRows;
 	oldCursorRow = newCursorRow;
 }
