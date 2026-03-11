@@ -1,5 +1,6 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { gfm, parse, renderToConsole } from "allmark";
+import readline from "node:readline";
 import * as ansi from "./ansi";
 import { config } from "./config";
 import type { State } from "./index";
@@ -139,6 +140,7 @@ function lastThinkingLines(text: string): string {
 function clearRenderedLines(state: State, linesToClear: number): void {
 	if (linesToClear > 0) {
 		state.write(`${ansi.CURSOR_UP(linesToClear)}\x1b[J`);
+		readline.clearScreenDown(process.stdout);
 	}
 	state.write(ansi.CURSOR_HOME);
 }
@@ -301,7 +303,7 @@ export function startAnimation(startTime?: number): void {
 		const elapsedText = formatDuration(elapsed);
 
 		process.stdout.write(
-			`\r${ansi.BOLD_MAGENTA}${ANIMATION_CHARS[index]} ${ansi.RESET}${ansi.BRIGHT_BLACK}Running for ${elapsedText}${ansi.RESET}`,
+			`\r${ansi.BOLD_MAGENTA}${ANIMATION_CHARS[index]} ${ansi.RESET}${ansi.BRIGHT_BLACK}Running for ${elapsedText}${ansi.RESET}    `,
 		);
 		index = (index + 1) % ANIMATION_CHARS.length;
 	}, 100);
