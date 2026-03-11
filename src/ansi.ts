@@ -5,7 +5,6 @@ export const CLEAR_SCREEN_UP = "\x1b[2A";
 export const CURSOR_HOME = "\x1b[0G";
 export const CURSOR_HIDE = "\x1b[?25l";
 export const CURSOR_SHOW = "\x1b[?25h";
-export const CURSOR_UP = (lines: number) => `\x1b[${lines}A`;
 export const DISABLE_LINE_WRAP = "\x1b[?7l";
 export const ENABLE_LINE_WRAP = "\x1b[?7h";
 export const RESET = "\x1b[0m";

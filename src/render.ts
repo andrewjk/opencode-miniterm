@@ -139,10 +139,10 @@ function lastThinkingLines(text: string): string {
 
 function clearRenderedLines(state: State, linesToClear: number): void {
 	if (linesToClear > 0) {
-		state.write(`${ansi.CURSOR_UP(linesToClear)}\x1b[J`);
+		readline.moveCursor(process.stdout, 0, -1 * linesToClear);
 		readline.clearScreenDown(process.stdout);
 	}
-	state.write(ansi.CURSOR_HOME);
+	readline.cursorTo(process.stdout, 0);
 }
 
 export function wrapText(text: string, width: number): string[] {
