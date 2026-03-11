@@ -5,7 +5,7 @@
     "": {
       "name": "opencode-miniterm",
       "dependencies": {
-        "@opencode-ai/sdk": "^1.2.15",
+        "@opencode-ai/sdk": "^1.2.24",
         "allmark": "^1.0.2",
       },
       "devDependencies": {
