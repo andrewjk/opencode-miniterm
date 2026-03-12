@@ -709,8 +709,8 @@ async function processEvent(event: Event): Promise<void> {
 				const message = event.properties.status.message;
 				const retryTime = event.properties.status.next;
 				const sessionID = event.properties.sessionID;
-				console.error(`\n${ansi.RED}Error:${ansi.RESET} ${message}`);
-				console.error(`${ansi.BRIGHT_BLACK}Session:${ansi.RESET} ${sessionID}`);
+				console.error(`\n\n  ${ansi.RED}Error:${ansi.RESET} ${message}`);
+				console.error(`  ${ansi.BRIGHT_BLACK}Session:${ansi.RESET} ${sessionID}`);
 				if (retryTime) {
 					if (retryInterval) {
 						clearInterval(retryInterval);
@@ -718,13 +718,13 @@ async function processEvent(event: Event): Promise<void> {
 					const retryDate = new Date(retryTime);
 
 					let lastSeconds = Math.max(0, Math.ceil((retryDate.getTime() - Date.now()) / 1000));
-					console.error(`${ansi.BRIGHT_BLACK}Retrying in ${lastSeconds}s...${ansi.RESET}`);
+					console.error(`  ${ansi.BRIGHT_BLACK}Retrying in ${lastSeconds}s...${ansi.RESET}`);
 
 					retryInterval = setInterval(() => {
 						const remaining = Math.max(0, Math.ceil((retryDate.getTime() - Date.now()) / 1000));
 						if (remaining !== lastSeconds) {
 							process.stdout.write(
-								`\r${ansi.BRIGHT_BLACK}Retrying in ${remaining}s...${ansi.RESET}`,
+								`\r  ${ansi.BRIGHT_BLACK}Retrying in ${remaining}s...${ansi.RESET}`,
 							);
 							lastSeconds = remaining;
 						}
@@ -833,7 +833,9 @@ async function processToolUse(part: Part) {
 		toolPart.state.input["description"] ||
 		toolPart.state.input["filePath"] ||
 		toolPart.state.input["path"] ||
-		// TODO: more state.input props...
+		toolPart.state.input["include"] ||
+		toolPart.state.input["pattern"] ||
+		// TODO: more state.input props?
 		"...";
 	const toolText = `$ ${toolName}: ${ansi.BRIGHT_BLACK}${toolInput}${ansi.RESET}`;
 
