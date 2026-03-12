@@ -1,6 +1,4 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
-import type { State } from "../index";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/exit",
@@ -11,7 +9,6 @@ let command: Command = {
 
 export default command;
 
-async function run(_client: OpencodeClient, _state: State): Promise<void> {
-	console.log(`\x1b[90mGoodbye!\x1b[0m`);
-	process.exit(0);
+async function run(state: State): Promise<void> {
+	state.shutdown();
 }

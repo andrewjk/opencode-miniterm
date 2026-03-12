@@ -1,8 +1,7 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
 import { getActiveDisplay, writePrompt } from "../render";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/models",
@@ -27,8 +26,8 @@ let modelListLineCount = 0;
 let modelSearchString = "";
 let modelFilteredIndices: number[] = [];
 
-async function run(client: OpencodeClient): Promise<void> {
-	const result = await client.config.providers();
+async function run(state: State): Promise<void> {
+	const result = await state.client.config.providers();
 
 	if (result.error) {
 		throw new Error(
@@ -64,7 +63,7 @@ async function run(client: OpencodeClient): Promise<void> {
 	renderModelList();
 }
 
-async function handleKey(client: OpencodeClient, key: Key, str?: string) {
+async function handleKey(state: State, key: Key, str?: string) {
 	switch (key.name) {
 		case "up": {
 			if (selectedModelIndex === 0) {
@@ -116,7 +115,7 @@ async function handleKey(client: OpencodeClient, key: Key, str?: string) {
 				config.providerID = selected.providerID;
 				config.modelID = selected.modelID;
 				saveConfig();
-				const activeDisplay = await getActiveDisplay(client);
+				const activeDisplay = await getActiveDisplay(state.client);
 				console.log(activeDisplay);
 				console.log();
 			}

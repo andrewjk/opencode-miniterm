@@ -1,9 +1,7 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
 import type { Key } from "node:readline";
 import * as ansi from "../ansi";
-import type { State } from "../index";
 import { wrapText } from "../render";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let currentPageIndex = 0;
 let pages: string[] = [];
@@ -18,7 +16,7 @@ let command: Command = {
 
 export default command;
 
-function run(client: OpencodeClient, state: State): void {
+function run(state: State): void {
 	pages = [];
 
 	for (const part of state.accumulatedResponse) {
@@ -44,7 +42,7 @@ function run(client: OpencodeClient, state: State): void {
 	displayPage();
 }
 
-function handleKey(client: OpencodeClient, key: Key, _input?: string): void {
+function handleKey(state: State, key: Key, _input?: string): void {
 	if (key.name === "space") {
 		currentPageIndex++;
 		if (currentPageIndex >= pages.length) {

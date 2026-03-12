@@ -3,82 +3,36 @@
 import { createOpencodeClient, createOpencodeServer } from "@opencode-ai/sdk";
 import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import { mkdir } from "node:fs/promises";
-import { glob } from "node:fs/promises";
-import { stat } from "node:fs/promises";
 import { open } from "node:fs/promises";
-import readline, { type Key } from "node:readline";
+import readline from "node:readline";
 import * as ansi from "./ansi";
-import agentsCommand from "./commands/agents";
-import debugCommand from "./commands/debug";
-import detailsCommand from "./commands/details";
-import diffCommand from "./commands/diff";
-import exitCommand from "./commands/exit";
-import initCommand from "./commands/init";
-import logCommand, { isLoggingEnabled } from "./commands/log";
-import modelsCommand from "./commands/models";
-import newCommand from "./commands/new";
-import pageCommand from "./commands/page";
-import quitCommand from "./commands/quit";
-import runCommand from "./commands/run";
-import sessionsCommand from "./commands/sessions";
-import undoCommand from "./commands/undo";
+import { getLogDir, isLoggingEnabled } from "./commands/log";
 import { config, loadConfig, saveConfig } from "./config";
-import { getActiveDisplay, render, startAnimation, stopAnimation, writePrompt } from "./render";
+import { handleKeyPress, loadSessionHistory } from "./input";
+import { getActiveDisplay, render, stopAnimation, writePrompt } from "./render";
+import type { State } from "./types";
 
 const SERVER_URL = "http://127.0.0.1:4096";
 const AUTH_USERNAME = process.env.OPENCODE_SERVER_USERNAME || "opencode";
 const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
 
-const SLASH_COMMANDS = [
-	initCommand,
-	agentsCommand,
-	modelsCommand,
-	sessionsCommand,
-	newCommand,
-	undoCommand,
-	detailsCommand,
-	diffCommand,
-	debugCommand,
-	logCommand,
-	pageCommand,
-	exitCommand,
-	quitCommand,
-	runCommand,
-];
-
 let server: Awaited<ReturnType<typeof createOpencodeServer>> | undefined;
-let client: ReturnType<typeof createOpencodeClient>;
 
 let processing = true;
 let retryInterval: ReturnType<typeof setInterval> | null = null;
-let isRequestActive = false;
-
-interface AccumulatedPart {
-	key: string;
-	title: "thinking" | "response" | "tool" | "files" | "todo";
-	text: string;
-	active?: boolean;
-	durationMs?: number;
-}
-
-export interface State {
-	sessionID: string;
-	renderedLines: string[];
-	accumulatedResponse: AccumulatedPart[];
-	allEvents: Event[];
-	write: (text: string) => void;
-	lastFileAfter: Map<string, string>;
-}
 
 export { updateSessionTitle, setTerminalTitle };
 
 let state: State = {
+	// @ts-ignore This will get set
+	client: null,
 	sessionID: "",
 	renderedLines: [],
 	accumulatedResponse: [],
 	allEvents: [],
-	write: (text) => process.stdout.write(text),
 	lastFileAfter: new Map(),
+	write: (text) => process.stdout.write(text),
+	shutdown,
 };
 
 let logFile: Awaited<ReturnType<typeof open>> | null = null;
@@ -101,7 +55,7 @@ async function main() {
 	}
 
 	const cwd = process.cwd();
-	client = createOpencodeClient({
+	state.client = createOpencodeClient({
 		baseUrl: SERVER_URL,
 		headers: AUTH_PASSWORD
 			? {
@@ -133,11 +87,11 @@ async function main() {
 
 		await updateSessionTitle();
 
-		history = await loadSessionHistory();
+		await loadSessionHistory(state);
 
 		process.stdout.write(`${ansi.CLEAR_SCREEN_UP}${ansi.CLEAR_FROM_CURSOR}`);
 		process.stdout.write(ansi.CURSOR_HOME);
-		const activeDisplay = await getActiveDisplay(client);
+		const activeDisplay = await getActiveDisplay(state.client);
 		console.log(activeDisplay);
 		if (!isNewSession) {
 			console.log("Resumed last session");
@@ -145,7 +99,7 @@ async function main() {
 		console.log();
 		console.log(`${ansi.BRIGHT_BLACK}Ask anything...${ansi.RESET}\n`);
 
-		const rl = readline.createInterface({
+		const _rl = readline.createInterface({
 			input: process.stdin,
 			output: undefined,
 		});
@@ -157,7 +111,7 @@ async function main() {
 		process.stdout.write(ansi.DISABLE_LINE_WRAP);
 
 		process.stdin.on("keypress", async (str, key) => {
-			handleKeyPress(str, key);
+			handleKeyPress(state, str, key);
 		});
 
 		writePrompt();
@@ -169,342 +123,11 @@ async function main() {
 }
 
 // ====================
-// HANDLE INPUT
-// ====================
-
-let inputBuffer = "";
-let cursorPosition = 0;
-let completions: string[] = [];
-let history: string[] = [];
-let historyIndex = history.length;
-let selectedCompletion = 0;
-let completionCycling = false;
-let lastSpaceTime = 0;
-let currentInputBuffer: string | null = null;
-
-let oldInputBuffer = "";
-let oldWrappedRows = 0;
-let oldCursorRow = 0;
-function renderLine(): void {
-	const consoleWidth = process.stdout.columns || 80;
-
-	// Move to the start of the line (i.e. the prompt position)
-	readline.cursorTo(process.stdout, 0);
-	if (oldWrappedRows > 0) {
-		if (cursorPosition < inputBuffer.length) {
-			readline.moveCursor(process.stdout, 0, oldWrappedRows - oldCursorRow);
-		}
-		readline.moveCursor(process.stdout, 0, -oldWrappedRows);
-	}
-
-	// Find the position where the input has changed (i.e. where the user has
-	// typed something)
-	let start = 0;
-	let currentCol = 2;
-	let newWrappedRows = 0;
-	for (let i = 0; i < Math.min(oldInputBuffer.length, inputBuffer.length); i++) {
-		if (oldInputBuffer[i] !== inputBuffer[i]) {
-			break;
-		}
-		if (currentCol >= consoleWidth) {
-			readline.moveCursor(process.stdout, 0, 1);
-			currentCol = 0;
-			newWrappedRows++;
-		}
-		currentCol++;
-		start++;
-	}
-
-	// Clear the old, changed, input
-	readline.cursorTo(process.stdout, currentCol);
-	readline.clearScreenDown(process.stdout);
-
-	// Write the prompt if this is a fresh buffer
-	if (start === 0) {
-		readline.cursorTo(process.stdout, 0);
-		writePrompt();
-		readline.cursorTo(process.stdout, 2);
-	}
-
-	// Write the changes from the new input buffer
-	let renderExtent = Math.max(cursorPosition + 1, inputBuffer.length);
-	for (let i = start; i < renderExtent; i++) {
-		if (currentCol >= consoleWidth) {
-			process.stdout.write("\n");
-			currentCol = 0;
-			newWrappedRows++;
-		}
-		if (i < inputBuffer.length) {
-			process.stdout.write(inputBuffer[i]!);
-		}
-		currentCol++;
-	}
-
-	// Calculate and move to the cursor's position
-	let absolutePos = 2 + cursorPosition;
-	let newCursorRow = Math.floor(absolutePos / consoleWidth);
-	let newCursorCol = absolutePos % consoleWidth;
-	readline.cursorTo(process.stdout, 0);
-	readline.moveCursor(process.stdout, 0, -1 * (newWrappedRows - newCursorRow));
-	readline.cursorTo(process.stdout, newCursorCol);
-
-	oldInputBuffer = inputBuffer;
-	oldWrappedRows = newWrappedRows;
-	oldCursorRow = newCursorRow;
-}
-
-async function handleKeyPress(str: string, key: Key) {
-	if (key.ctrl && key.name === "c") {
-		process.stdout.write("\n");
-		shutdown();
-		return;
-	}
-
-	for (let command of SLASH_COMMANDS) {
-		if (command.running && command.handleKey) {
-			await command.handleKey(client, key, str);
-			return;
-		}
-	}
-
-	switch (key.name) {
-		case "up": {
-			if (historyIndex === history.length) {
-				currentInputBuffer = inputBuffer;
-			}
-			if (history.length > 0) {
-				if (historyIndex > 0) {
-					historyIndex--;
-					inputBuffer = history[historyIndex]!;
-				} else {
-					historyIndex = Math.max(-1, historyIndex - 1);
-					inputBuffer = "";
-				}
-				cursorPosition = inputBuffer.length;
-				renderLine();
-			}
-			return;
-		}
-		case "down": {
-			if (history.length > 0) {
-				if (historyIndex < history.length - 1) {
-					historyIndex++;
-					inputBuffer = history[historyIndex]!;
-				} else {
-					historyIndex = history.length;
-					inputBuffer = currentInputBuffer || "";
-					currentInputBuffer = null;
-				}
-				cursorPosition = inputBuffer.length;
-				renderLine();
-			}
-			return;
-		}
-		case "tab": {
-			if (!completionCycling) {
-				await handleTab();
-			}
-			if (completionCycling && completions.length > 0) {
-				await handleTab();
-			}
-			return;
-		}
-		case "escape": {
-			if (isRequestActive) {
-				if (state.sessionID) {
-					client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
-				}
-				stopAnimation();
-				process.stdout.write(ansi.CURSOR_SHOW);
-				process.stdout.write(`\r  ${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
-				writePrompt();
-				isRequestActive = false;
-			} else {
-				inputBuffer = "";
-				cursorPosition = 0;
-				currentInputBuffer = null;
-				renderLine();
-			}
-			return;
-		}
-		case "return": {
-			await acceptInput();
-			return;
-		}
-		case "backspace": {
-			if (cursorPosition > 0) {
-				inputBuffer = inputBuffer.slice(0, cursorPosition - 1) + inputBuffer.slice(cursorPosition);
-				cursorPosition--;
-				currentInputBuffer = null;
-			}
-			break;
-		}
-		case "delete": {
-			if (cursorPosition < inputBuffer.length) {
-				inputBuffer = inputBuffer.slice(0, cursorPosition) + inputBuffer.slice(cursorPosition + 1);
-				currentInputBuffer = null;
-			}
-			break;
-		}
-		case "left": {
-			if (key.meta) {
-				cursorPosition = findPreviousWordBoundary(inputBuffer, cursorPosition);
-			} else if (cursorPosition > 0) {
-				cursorPosition--;
-			}
-			break;
-		}
-		case "right": {
-			if (key.meta) {
-				cursorPosition = findNextWordBoundary(inputBuffer, cursorPosition);
-			} else if (cursorPosition < inputBuffer.length) {
-				cursorPosition++;
-			}
-			break;
-		}
-		default: {
-			if (str === " ") {
-				const now = Date.now();
-				if (
-					now - lastSpaceTime < 500 &&
-					cursorPosition > 0 &&
-					inputBuffer[cursorPosition - 1] === " "
-				) {
-					inputBuffer =
-						inputBuffer.slice(0, cursorPosition - 1) + ". " + inputBuffer.slice(cursorPosition);
-					cursorPosition += 1;
-				} else {
-					inputBuffer =
-						inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
-					cursorPosition += str.length;
-				}
-				lastSpaceTime = now;
-			} else if (str) {
-				inputBuffer =
-					inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
-				cursorPosition += str.length;
-			}
-			currentInputBuffer = null;
-		}
-	}
-
-	completionCycling = false;
-	completions = [];
-	renderLine();
-}
-
-async function handleTab(): Promise<void> {
-	const potentialCompletions = await getCompletions(inputBuffer);
-
-	if (potentialCompletions.length === 0) {
-		completionCycling = false;
-		return;
-	}
-
-	if (!completionCycling) {
-		completions = potentialCompletions;
-		selectedCompletion = 0;
-		completionCycling = true;
-		inputBuffer = completions[0]!;
-		cursorPosition = inputBuffer.length;
-		renderLine();
-	} else {
-		selectedCompletion = (selectedCompletion + 1) % completions.length;
-		inputBuffer = completions[selectedCompletion]!;
-		cursorPosition = inputBuffer.length;
-		renderLine();
-	}
-}
-
-async function getCompletions(text: string): Promise<string[]> {
-	if (text.startsWith("/")) {
-		return ["/help", ...SLASH_COMMANDS.map((c) => c.name)].filter((cmd) => cmd.startsWith(text));
-	}
-
-	const atMatch = text.match(/(@[^\s]*)$/);
-	if (atMatch) {
-		const prefix = atMatch[0]!;
-		const searchPattern = prefix.slice(1);
-		const pattern = searchPattern.includes("/") ? searchPattern + "*" : "**/" + searchPattern + "*";
-		const files = await getFileCompletions(pattern);
-		return files.map((file: string) => text.replace(/@[^\s]*$/, "@" + file));
-	}
-
-	return [];
-}
-
-async function acceptInput(): Promise<void> {
-	process.stdout.write("\n");
-
-	const input = inputBuffer.trim();
-
-	oldInputBuffer = "";
-	inputBuffer = "";
-	cursorPosition = 0;
-	completionCycling = false;
-	completions = [];
-	currentInputBuffer = null;
-
-	if (input) {
-		if (history[history.length - 1] !== input) {
-			history.push(input);
-		}
-		historyIndex = history.length;
-		try {
-			if (input === "/help") {
-				process.stdout.write("\n");
-				const maxCommandLength = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
-				for (const cmd of SLASH_COMMANDS) {
-					const padding = " ".repeat(maxCommandLength - cmd.name.length + 2);
-					console.log(
-						`  ${ansi.BRIGHT_WHITE}${cmd.name}${ansi.RESET}${padding}${ansi.BRIGHT_BLACK}${cmd.description}${ansi.RESET}`,
-					);
-				}
-				console.log();
-				writePrompt();
-				return;
-			} else if (input.startsWith("/")) {
-				const parts = input.match(/(\/[^\s]+)\s*(.*)/)!;
-				if (parts) {
-					const commandName = parts[1];
-					const extra = parts[2]?.trim();
-					for (let command of SLASH_COMMANDS) {
-						if (command.name === commandName) {
-							process.stdout.write("\n");
-							await command.run(client, state, extra);
-							writePrompt();
-							return;
-						}
-					}
-				}
-				return;
-			}
-
-			isRequestActive = true;
-			process.stdout.write("\n");
-			process.stdout.write(ansi.CURSOR_HIDE);
-			startAnimation();
-			if (isLoggingEnabled()) {
-				console.log(`📝 ${ansi.BRIGHT_BLACK}Logging to ${getLogDir()}\n${ansi.RESET}`);
-			}
-			await sendMessage(state.sessionID, input);
-			isRequestActive = false;
-		} catch (error: any) {
-			isRequestActive = false;
-			if (error.message !== "Request cancelled") {
-				stopAnimation();
-				console.error("Error:", error.message);
-			}
-		}
-	}
-}
-
-// ====================
 // SERVER COMMUNICATION
 // ====================
 
 async function createSession(): Promise<string> {
-	const result = await client.session.create({
+	const result = await state.client.session.create({
 		body: {},
 	});
 
@@ -524,7 +147,7 @@ async function createSession(): Promise<string> {
 
 async function validateSession(sessionID: string): Promise<boolean> {
 	try {
-		const result = await client.session.get({
+		const result = await state.client.session.get({
 			path: { id: sessionID },
 		});
 		return !result.error && result.response.status === 200;
@@ -535,7 +158,7 @@ async function validateSession(sessionID: string): Promise<boolean> {
 
 async function updateSessionTitle(): Promise<void> {
 	try {
-		const result = await client.session.get({
+		const result = await state.client.session.get({
 			path: { id: state.sessionID },
 		});
 		if (!result.error && result.data?.title) {
@@ -548,37 +171,9 @@ async function updateSessionTitle(): Promise<void> {
 	}
 }
 
-async function loadSessionHistory(): Promise<string[]> {
-	try {
-		const result = await client.session.messages({
-			path: { id: state.sessionID },
-		});
-		if (result.error || !result.data) {
-			return [];
-		}
-
-		const history: string[] = [];
-		for (const msg of result.data) {
-			if (msg.info.role === "user") {
-				const textParts = msg.parts
-					.filter((p: Part) => p.type === "text")
-					.map((p: Part) => (p as any).text || "")
-					.filter(Boolean);
-				const text = textParts.join("").trim();
-				if (text && !text.startsWith("/")) {
-					history.push(text);
-				}
-			}
-		}
-		return history;
-	} catch {
-		return [];
-	}
-}
-
 async function startEventListener(): Promise<void> {
 	try {
-		const { stream } = await client.event.subscribe({
+		const { stream } = await state.client.event.subscribe({
 			onSseError: (error) => {
 				console.error(
 					`\n${ansi.RED}Connection error:${ansi.RESET}`,
@@ -605,7 +200,8 @@ async function startEventListener(): Promise<void> {
 	}
 }
 
-async function sendMessage(sessionID: string, message: string) {
+// TODO: Should this be in something like "server.ts"?
+export async function sendMessage(sessionID: string, message: string) {
 	processing = false;
 	state.accumulatedResponse = [];
 	state.allEvents = [];
@@ -618,7 +214,7 @@ async function sendMessage(sessionID: string, message: string) {
 	const requestStartTime = Date.now();
 
 	try {
-		const result = await client.session.prompt({
+		const result = await state.client.session.prompt({
 			path: { id: sessionID },
 			body: {
 				model: {
@@ -701,7 +297,7 @@ async function processEvent(event: Event): Promise<void> {
 		case "session.status":
 			if (event.type === "session.status" && event.properties.status.type === "idle") {
 				stopAnimation();
-				isRequestActive = false;
+				// TODO: isRequestActive = false;
 				process.stdout.write(ansi.CURSOR_SHOW);
 				if (retryInterval) {
 					clearInterval(retryInterval);
@@ -942,38 +538,6 @@ function setTerminalTitle(sessionName: string): void {
 	process.stdout.write(`\x1b]0;OC | ${sessionName}\x07`);
 }
 
-function findPreviousWordBoundary(text: string, pos: number): number {
-	if (pos <= 0) return 0;
-
-	let newPos = pos;
-
-	while (newPos > 0 && /\s/.test(text[newPos - 1]!)) {
-		newPos--;
-	}
-
-	while (newPos > 0 && !/\s/.test(text[newPos - 1]!)) {
-		newPos--;
-	}
-
-	return newPos;
-}
-
-function findNextWordBoundary(text: string, pos: number): number {
-	if (pos >= text.length) return text.length;
-
-	let newPos = pos;
-
-	while (newPos < text.length && !/\s/.test(text[newPos]!)) {
-		newPos++;
-	}
-
-	while (newPos < text.length && /\s/.test(text[newPos]!)) {
-		newPos++;
-	}
-
-	return newPos;
-}
-
 function formatDuration(ms: number): string {
 	if (ms < 1000) {
 		return `${ms}ms`;
@@ -995,11 +559,6 @@ function formatDuration(ms: number): string {
 // ====================
 // LOGGING
 // ====================
-
-export function getLogDir(): string {
-	const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-	return `${homeDir}/.local/share/opencode-miniterm/log`;
-}
 
 async function createLogFile(): Promise<void> {
 	if (!isLoggingEnabled()) {
@@ -1042,32 +601,6 @@ async function writeToLog(text: string): Promise<void> {
 		} catch (error) {
 			console.error("Failed to write to log file:", error);
 		}
-	}
-}
-
-// ====================
-// UTILITIES
-// ====================
-
-async function getFileCompletions(pattern: string): Promise<string[]> {
-	try {
-		const files: string[] = [];
-		for await (const file of glob(pattern)) {
-			if (
-				!file.startsWith("node_modules/") &&
-				!file.startsWith(".git/") &&
-				!file.startsWith("dist/") &&
-				!file.startsWith("build/")
-			) {
-				const isDir = await stat(file)
-					.then((s) => s.isDirectory())
-					.catch(() => false);
-				files.push(isDir ? file + "/" : file);
-			}
-		}
-		return files.sort();
-	} catch {
-		return [];
 	}
 }
 

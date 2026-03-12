@@ -1,7 +1,5 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
 import { config } from "../config";
-import type { State } from "../index";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/undo",
@@ -12,13 +10,13 @@ let command: Command = {
 
 export default command;
 
-async function run(client: OpencodeClient, _state: State): Promise<void> {
+async function run(state: State): Promise<void> {
 	const cwd = process.cwd();
 	if (!config.sessionIDs[cwd]) return;
 
 	console.log("Fetching session messages...");
 
-	const messagesRes = await client.session.messages({
+	const messagesRes = await state.client.session.messages({
 		path: { id: config.sessionIDs[cwd] },
 	});
 
@@ -49,8 +47,8 @@ async function run(client: OpencodeClient, _state: State): Promise<void> {
 
 	console.log(`Reverting last assistant message (${lastMessage.info.id})...`);
 
-	const revertRes = await client.session.revert({
-		path: { id: config.sessionIDs[process.cwd()] },
+	const revertRes = await state.client.session.revert({
+		path: { id: config.sessionIDs[process.cwd()]! },
 		body: {
 			messageID: lastMessage.info.id,
 		},

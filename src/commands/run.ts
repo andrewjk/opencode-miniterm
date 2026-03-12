@@ -1,7 +1,5 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
 import { spawn } from "node:child_process";
-import type { State } from "../index";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/run",
@@ -12,7 +10,7 @@ let command: Command = {
 
 export default command;
 
-async function run(_client: OpencodeClient, _state: State, input?: string): Promise<void> {
+async function run(_state: State, input?: string): Promise<void> {
 	if (!input) return;
 
 	const child = spawn(input, [], { shell: true });

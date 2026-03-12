@@ -1,8 +1,5 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
-import { config, saveConfig } from "../config";
-import type { State } from "../index";
-import { writePrompt } from "../render";
-import type { Command } from "../types";
+import { config } from "../config";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/init",
@@ -13,12 +10,12 @@ let command: Command = {
 
 export default command;
 
-async function run(_client: OpencodeClient, _state: State): Promise<void> {
+async function run(state: State): Promise<void> {
 	const cwd = process.cwd();
 	if (!config.sessionIDs[cwd]) return;
 
 	console.log("Running /init command (analyzing project and creating AGENTS.md)...");
-	const result = await _client.session.init({
+	const result = await state.client.session.init({
 		path: { id: config.sessionIDs[cwd] },
 	});
 

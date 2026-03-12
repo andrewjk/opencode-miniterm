@@ -1,8 +1,7 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import { type State, getLogDir } from "../index";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
+import { getLogDir } from "./log";
 
 let command: Command = {
 	name: "/debug",
@@ -13,7 +12,7 @@ let command: Command = {
 
 export default command;
 
-function run(_client: OpencodeClient, state: State): void {
+function run(state: State): void {
 	if (state.allEvents.length === 0) {
 		console.log("No parts stored yet. Send a message first.");
 		return;

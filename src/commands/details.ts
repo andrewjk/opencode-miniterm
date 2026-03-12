@@ -1,7 +1,5 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
-import type { State } from "../index";
 import { render } from "../render";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/details",
@@ -12,6 +10,6 @@ let command: Command = {
 
 export default command;
 
-function run(_client: OpencodeClient, state: State): void {
+function run(state: State): void {
 	render(state, true);
 }

@@ -1,9 +1,7 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
 import { config, saveConfig } from "../config";
-import type { State } from "../index";
 import { updateSessionTitle } from "../index";
 import { getActiveDisplay } from "../render";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/new",
@@ -14,21 +12,21 @@ let command: Command = {
 
 export default command;
 
-async function run(client: OpencodeClient, state: State): Promise<void> {
-	state.sessionID = await createSession(client);
+async function run(state: State): Promise<void> {
+	state.sessionID = await createSession(state);
 	config.sessionIDs[process.cwd()] = state.sessionID;
 	saveConfig();
 
 	await updateSessionTitle();
 
-	const activeDisplay = await getActiveDisplay(client);
+	const activeDisplay = await getActiveDisplay(state.client);
 	console.log(activeDisplay);
 	console.log(`Created new session`);
 	console.log();
 }
 
-async function createSession(client: OpencodeClient): Promise<string> {
-	const result = await client.session.create({
+async function createSession(state: State): Promise<string> {
+	const result = await state.client.session.create({
 		body: {},
 	});
 

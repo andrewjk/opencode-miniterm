@@ -1,7 +1,5 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
 import { config } from "../config";
-import type { State } from "../index";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/diff",
@@ -19,7 +17,7 @@ interface DiffLine {
 	newIndex?: number;
 }
 
-async function run(client: OpencodeClient, state: State): Promise<void> {
+async function run(state: State): Promise<void> {
 	const cwd = process.cwd();
 	if (!config.sessionIDs[cwd]) {
 		console.log("No active session.\n");
@@ -28,7 +26,7 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 
 	console.log("Fetching file changes...");
 
-	const result = await client.session.diff({
+	const result = await state.client.session.diff({
 		path: { id: config.sessionIDs[cwd] },
 	});
 

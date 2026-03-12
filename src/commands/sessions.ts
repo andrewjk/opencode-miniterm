@@ -1,10 +1,9 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
-import type { State } from "../index";
 import { updateSessionTitle } from "../index";
 import { writePrompt } from "../render";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 let command: Command = {
 	name: "/sessions",
@@ -30,8 +29,8 @@ let sessionListOffset = 0;
 let sessionSearchString = "";
 let sessionFilteredIndices: number[] = [];
 
-async function run(client: OpencodeClient, state: State): Promise<void> {
-	const result = await client.session.list();
+async function run(state: State): Promise<void> {
+	const result = await state.client.session.list();
 
 	if (result.error) {
 		throw new Error(
@@ -43,7 +42,7 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 
 	if (sessions.length === 0) {
 		console.log("No sessions found. Creating a new session...");
-		state.sessionID = await createSession(client);
+		state.sessionID = await createSession(state);
 		config.sessionIDs[process.cwd()] = state.sessionID;
 		saveConfig();
 		console.log(`Created new session: ${state.sessionID}...\n`);
@@ -71,7 +70,7 @@ async function run(client: OpencodeClient, state: State): Promise<void> {
 	renderSessionList();
 }
 
-async function handleKey(_client: OpencodeClient, key: Key, str?: string) {
+async function handleKey(_state: State, key: Key, str?: string) {
 	switch (key.name) {
 		case "up": {
 			if (selectedSessionIndex === 0) {
@@ -165,8 +164,8 @@ async function handleKey(_client: OpencodeClient, key: Key, str?: string) {
 	}
 }
 
-async function createSession(client: OpencodeClient): Promise<string> {
-	const result = await client.session.create({
+async function createSession(state: State): Promise<string> {
+	const result = await state.client.session.create({
 		body: {},
 	});
 

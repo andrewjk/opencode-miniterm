@@ -2,7 +2,7 @@ import type { Agent, OpencodeClient } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
 import { getActiveDisplay, writePrompt } from "../render";
-import type { Command } from "../types";
+import type { Command, State } from "../types";
 
 interface AgentInfo {
 	id: string;
@@ -25,8 +25,8 @@ let command: Command = {
 
 export default command;
 
-async function run(client: OpencodeClient): Promise<void> {
-	const result = await client.app.agents();
+async function run(state: State): Promise<void> {
+	const result = await state.client.app.agents();
 
 	if (result.error) {
 		throw new Error(
@@ -47,7 +47,7 @@ async function run(client: OpencodeClient): Promise<void> {
 	renderAgentList();
 }
 
-async function handleKey(client: OpencodeClient, key: Key, str?: string) {
+async function handleKey(state: State, key: Key, str?: string) {
 	switch (key.name) {
 		case "up": {
 			if (selectedAgentIndex === 0) {
@@ -98,7 +98,7 @@ async function handleKey(client: OpencodeClient, key: Key, str?: string) {
 			if (selected) {
 				config.agentID = selected.id;
 				saveConfig();
-				const activeDisplay = await getActiveDisplay(client);
+				const activeDisplay = await getActiveDisplay(state.client);
 				console.log(activeDisplay);
 				console.log();
 			}
