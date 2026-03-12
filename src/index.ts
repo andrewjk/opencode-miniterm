@@ -216,11 +216,14 @@ function renderLine(): void {
 	}
 
 	// Clear the old, changed, input
-	readline.moveCursor(process.stdout, currentCol, 0);
+	readline.cursorTo(process.stdout, currentCol);
 	readline.clearScreenDown(process.stdout);
 
+	// Write the prompt if this is a fresh buffer
 	if (start === 0) {
+		readline.cursorTo(process.stdout, 0);
 		writePrompt();
+		readline.cursorTo(process.stdout, 2);
 	}
 
 	// Write the changes from the new input buffer
@@ -435,6 +438,7 @@ async function acceptInput(): Promise<void> {
 
 	const input = inputBuffer.trim();
 
+	oldInputBuffer = "";
 	inputBuffer = "";
 	cursorPosition = 0;
 	completionCycling = false;
