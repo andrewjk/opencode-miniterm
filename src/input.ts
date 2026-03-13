@@ -329,6 +329,9 @@ async function acceptInput(state: State): Promise<void> {
 	const input = inputBuffer.trim();
 
 	oldInputBuffer = "";
+	oldWrappedRows = 0;
+	oldCursorRow = 0;
+
 	inputBuffer = "";
 	cursorPosition = 0;
 	completionCycling = false;
