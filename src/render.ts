@@ -3,7 +3,8 @@ import { gfm, parse, renderToConsole } from "allmark";
 import readline from "node:readline";
 import * as ansi from "./ansi";
 import { config } from "./config";
-import type { State } from "./index";
+import type { State } from "./types";
+import { formatDuration } from "./utils";
 
 export function render(state: State, details = false): void {
 	let output = "";
@@ -309,21 +310,6 @@ export function startAnimation(startTime?: number): void {
 	}, 100);
 }
 
-function formatDuration(ms: number): string {
-	const seconds = ms / 1000;
-	if (seconds < 60) {
-		return `${Math.round(seconds)}s`;
-	}
-	const minutes = Math.floor(seconds / 60);
-	const remainingSeconds = Math.round(seconds % 60);
-	if (minutes < 60) {
-		return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
-	}
-	const hours = Math.floor(minutes / 60);
-	const remainingMinutes = minutes % 60;
-	return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
-}
-
 export function stopAnimation(): void {
 	if (animationInterval) {
 		clearInterval(animationInterval);
@@ -377,4 +363,23 @@ export async function getActiveDisplay(client: OpencodeClient): Promise<string> 
 	}
 
 	return parts.join("  ");
+}
+
+export async function updateSessionTitle(state: State): Promise<void> {
+	try {
+		const result = await state.client.session.get({
+			path: { id: state.sessionID },
+		});
+		if (!result.error && result.data?.title) {
+			setTerminalTitle(result.data.title);
+		} else {
+			setTerminalTitle(state.sessionID.substring(0, 8));
+		}
+	} catch {
+		setTerminalTitle(state.sessionID.substring(0, 8));
+	}
+}
+
+export function setTerminalTitle(sessionName: string): void {
+	process.stdout.write(`\x1b]0;OC | ${sessionName}\x07`);
 }

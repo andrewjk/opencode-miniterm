@@ -1,8 +1,7 @@
-import type { OpencodeClient, Session } from "@opencode-ai/sdk";
+import type { Session } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
-import { updateSessionTitle } from "../index";
-import { writePrompt } from "../render";
+import { updateSessionTitle, writePrompt } from "../render";
 import type { Command, State } from "../types";
 
 let command: Command = {
@@ -46,7 +45,7 @@ async function run(state: State): Promise<void> {
 		config.sessionIDs[process.cwd()] = state.sessionID;
 		saveConfig();
 		console.log(`Created new session: ${state.sessionID}...\n`);
-		await updateSessionTitle();
+		await updateSessionTitle(state);
 		return;
 	}
 
@@ -70,7 +69,7 @@ async function run(state: State): Promise<void> {
 	renderSessionList();
 }
 
-async function handleKey(_state: State, key: Key, str?: string) {
+async function handleKey(state: State, key: Key, str?: string) {
 	switch (key.name) {
 		case "up": {
 			if (selectedSessionIndex === 0) {
@@ -141,7 +140,7 @@ async function handleKey(_state: State, key: Key, str?: string) {
 					console.log(`  Title: ${selected.title}`);
 				}
 				console.log();
-				await updateSessionTitle();
+				await updateSessionTitle(state);
 			}
 			writePrompt();
 			return;

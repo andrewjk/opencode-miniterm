@@ -2,7 +2,6 @@ import type { Part } from "@opencode-ai/sdk";
 import { glob } from "node:fs/promises";
 import { stat } from "node:fs/promises";
 import readline, { type Key } from "node:readline";
-import { sendMessage } from ".";
 import * as ansi from "./ansi";
 import agentsCommand from "./commands/agents";
 import debugCommand from "./commands/debug";
@@ -19,6 +18,7 @@ import runCommand from "./commands/run";
 import sessionsCommand from "./commands/sessions";
 import undoCommand from "./commands/undo";
 import { startAnimation, stopAnimation, writePrompt } from "./render";
+import { sendMessage } from "./server";
 import type { State } from "./types";
 
 const SLASH_COMMANDS = [
@@ -376,7 +376,7 @@ async function acceptInput(state: State): Promise<void> {
 			if (isLoggingEnabled()) {
 				console.log(`📝 ${ansi.BRIGHT_BLACK}Logging to ${getLogDir()}\n${ansi.RESET}`);
 			}
-			await sendMessage(state.sessionID, input);
+			await sendMessage(state, input);
 			isRequestActive = false;
 		} catch (error: any) {
 			isRequestActive = false;

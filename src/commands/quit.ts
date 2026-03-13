@@ -1,5 +1,3 @@
-import * as ansi from "../ansi";
-import { saveConfig } from "../config";
 import type { Command, State } from "../types";
 
 let command: Command = {

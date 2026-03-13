@@ -1,6 +1,5 @@
 import { config, saveConfig } from "../config";
-import { updateSessionTitle } from "../index";
-import { getActiveDisplay } from "../render";
+import { getActiveDisplay, updateSessionTitle } from "../render";
 import type { Command, State } from "../types";
 
 let command: Command = {
@@ -17,7 +16,7 @@ async function run(state: State): Promise<void> {
 	config.sessionIDs[process.cwd()] = state.sessionID;
 	saveConfig();
 
-	await updateSessionTitle();
+	await updateSessionTitle(state);
 
 	const activeDisplay = await getActiveDisplay(state.client);
 	console.log(activeDisplay);
