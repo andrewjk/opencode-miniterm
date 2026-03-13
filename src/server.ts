@@ -121,7 +121,7 @@ export async function sendMessage(state: State, message: string) {
 		stopAnimation();
 
 		const duration = Date.now() - requestStartTime;
-		const durationText = formatDuration(duration);
+		const durationText = formatDuration(duration, true);
 		console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
 
 		writePrompt();

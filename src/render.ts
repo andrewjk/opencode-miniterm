@@ -1,6 +1,5 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { gfm, parse, renderToConsole } from "allmark";
-import readline from "node:readline";
 import * as ansi from "./ansi";
 import { config } from "./config";
 import type { State } from "./types";
@@ -140,10 +139,9 @@ function lastThinkingLines(text: string): string {
 
 function clearRenderedLines(state: State, linesToClear: number): void {
 	if (linesToClear > 0) {
-		readline.moveCursor(process.stdout, 0, -1 * linesToClear);
-		readline.clearScreenDown(process.stdout);
+		state.write(`${ansi.CURSOR_UP(linesToClear)}${ansi.CLEAR_FROM_CURSOR}`);
 	}
-	readline.cursorTo(process.stdout, 0);
+	state.write(`${ansi.CURSOR_HOME}`);
 }
 
 export function wrapText(text: string, width: number): string[] {

@@ -1,11 +1,13 @@
 import { stripANSI } from "bun";
 import { describe, expect, it, vi } from "bun:test";
-import { type State } from "../src";
 import * as ansi from "../src/ansi";
 import { render, wrapText } from "../src/render";
+import type { State } from "../src/types";
 
 describe("render", () => {
 	const createMockState = (overrides?: Partial<State>): State => ({
+		// @ts-ignore this doesn't get used in any of the test methods
+		client: null,
 		sessionID: "",
 		renderedLines: [],
 		accumulatedResponse: [],
@@ -35,7 +37,7 @@ describe("render", () => {
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith("\x1b[5A\x1b[J");
+			expect(write).toHaveBeenCalledWith("\x1b[5A\x1b[0J");
 		});
 
 		it("should clear previous accumulated parts", () => {
