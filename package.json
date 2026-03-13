@@ -1,6 +1,6 @@
 {
 	"name": "opencode-miniterm",
-	"version": "1.0.12",
+	"version": "1.0.15",
 	"description": "A small front-end terminal UI for OpenCode",
 	"main": "src/index.ts",
 	"bin": {
@@ -9,6 +9,7 @@
 	"scripts": {
 		"dev": "bun src/index.ts",
 		"test": "bun test",
+		"test:tmux": "bun test/tmux-readline.test.ts",
 		"check": "tsgo --noEmit"
 	},
 	"keywords": [
@@ -28,7 +29,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@opencode-ai/sdk": "^1.2.24",
+		"@opencode-ai/sdk": "^1.2.25",
 		"allmark": "^1.0.2"
 	}
 }
