@@ -10,15 +10,6 @@ let command: Command = {
 
 export default command;
 
-export function isLoggingEnabled(): boolean {
-	return config.loggingEnabled;
-}
-
-export function getLogDir(): string {
-	const homeDir = process.env.HOME || process.env.USERPROFILE || "";
-	return `${homeDir}/.local/share/opencode-miniterm/log`;
-}
-
 function run(_state: State): void {
 	config.loggingEnabled = !config.loggingEnabled;
 	saveConfig();

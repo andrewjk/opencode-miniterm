@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
+import { getLogDir } from "../logs";
 import type { Command, State } from "../types";
-import { getLogDir } from "./log";
 
 let command: Command = {
 	name: "/debug",

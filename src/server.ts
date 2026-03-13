@@ -1,10 +1,8 @@
 import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
-import { mkdir } from "node:fs/promises";
-import { open } from "node:fs/promises";
 import * as ansi from "./ansi";
-import { getLogDir, isLoggingEnabled } from "./commands/log";
 import { config } from "./config";
+import { closeLogFile, createLogFile, writeToLog } from "./logs";
 import { render, setTerminalTitle, stopAnimation, writePrompt } from "./render";
 import type { State } from "./types";
 import { formatDuration } from "./utils";
@@ -15,9 +13,6 @@ const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
 
 let processing = true;
 let retryInterval: ReturnType<typeof setInterval> | null = null;
-
-let logFile: Awaited<ReturnType<typeof open>> | null = null;
-let logFilePath: string | null = null;
 
 export function createClient(cwd: string): ReturnType<typeof createOpencodeClient> {
 	return createOpencodeClient({
@@ -399,50 +394,6 @@ function findLastPart(state: State, title: string) {
 		const part = state.accumulatedResponse[i];
 		if (part?.key === title) {
 			return part;
-		}
-	}
-}
-
-async function createLogFile(): Promise<void> {
-	if (!isLoggingEnabled()) {
-		return;
-	}
-
-	const logDir = getLogDir();
-	await mkdir(logDir, { recursive: true });
-
-	const now = new Date();
-	const timestamp = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
-	const filename = `${timestamp}.txt`;
-	logFilePath = `${logDir}/${filename}`;
-
-	try {
-		logFile = await open(logFilePath, "w");
-	} catch (error) {
-		console.error("Failed to create log file:", error);
-		logFile = null;
-		logFilePath = null;
-	}
-}
-
-async function closeLogFile(): Promise<void> {
-	if (logFile) {
-		try {
-			await logFile.close();
-		} catch (error) {
-			console.error("Failed to close log file:", error);
-		}
-		logFile = null;
-		logFilePath = null;
-	}
-}
-
-async function writeToLog(text: string): Promise<void> {
-	if (logFile && isLoggingEnabled()) {
-		try {
-			await logFile.write(text);
-		} catch (error) {
-			console.error("Failed to write to log file:", error);
 		}
 	}
 }
