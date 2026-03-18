@@ -1,7 +1,7 @@
 import type { Part } from "@opencode-ai/sdk";
 import { glob } from "node:fs/promises";
 import { stat } from "node:fs/promises";
-import readline, { type Key } from "node:readline";
+import { type Key } from "node:readline";
 import * as ansi from "./ansi";
 import agentsCommand from "./commands/agents";
 import debugCommand from "./commands/debug";
@@ -57,12 +57,12 @@ export function renderLine(): void {
 	const consoleWidth = process.stdout.columns || 80;
 
 	// Move to the start of the line (i.e. the prompt position)
-	readline.cursorTo(process.stdout, 0);
+	process.stdout.write(ansi.CURSOR_HOME);
 	if (oldWrappedRows > 0) {
 		if (cursorPosition < inputBuffer.length) {
-			readline.moveCursor(process.stdout, 0, oldWrappedRows - oldCursorRow);
+			process.stdout.write(ansi.CURSOR_DOWN(oldWrappedRows - oldCursorRow));
 		}
-		readline.moveCursor(process.stdout, 0, -oldWrappedRows);
+		process.stdout.write(ansi.CURSOR_UP(oldWrappedRows));
 	}
 
 	// Find the position where the input has changed (i.e. where the user has
@@ -75,7 +75,7 @@ export function renderLine(): void {
 			break;
 		}
 		if (currentCol >= consoleWidth) {
-			readline.moveCursor(process.stdout, 0, 1);
+			process.stdout.write(ansi.CURSOR_DOWN(1));
 			currentCol = 0;
 			newWrappedRows++;
 		}
@@ -84,14 +84,14 @@ export function renderLine(): void {
 	}
 
 	// Clear the old, changed, input
-	readline.cursorTo(process.stdout, currentCol);
-	readline.clearScreenDown(process.stdout);
+	process.stdout.write(ansi.CURSOR_COL(currentCol));
+	process.stdout.write(ansi.CLEAR_FROM_CURSOR);
 
 	// Write the prompt if this is a fresh buffer
 	if (start === 0) {
-		readline.cursorTo(process.stdout, 0);
+		process.stdout.write(ansi.CURSOR_HOME);
 		writePrompt();
-		readline.cursorTo(process.stdout, 2);
+		process.stdout.write(ansi.CURSOR_COL(2));
 	}
 
 	// Write the changes from the new input buffer
@@ -112,9 +112,12 @@ export function renderLine(): void {
 	let absolutePos = 2 + cursorPosition;
 	let newCursorRow = Math.floor(absolutePos / consoleWidth);
 	let newCursorCol = absolutePos % consoleWidth;
-	readline.cursorTo(process.stdout, 0);
-	readline.moveCursor(process.stdout, 0, -1 * (newWrappedRows - newCursorRow));
-	readline.cursorTo(process.stdout, newCursorCol);
+	process.stdout.write(ansi.CURSOR_HOME);
+	let rowsToMove = newWrappedRows - newCursorRow;
+	if (rowsToMove > 0) {
+		process.stdout.write(ansi.CURSOR_UP(rowsToMove));
+	}
+	process.stdout.write(ansi.CURSOR_COL(newCursorCol));
 
 	oldInputBuffer = inputBuffer;
 	oldWrappedRows = newWrappedRows;
@@ -450,4 +453,27 @@ function findNextWordBoundary(text: string, pos: number): number {
 	}
 
 	return newPos;
+}
+
+// Test helpers
+export function _setInputState(state: {
+	inputBuffer?: string;
+	cursorPosition?: number;
+	oldInputBuffer?: string;
+	oldWrappedRows?: number;
+	oldCursorRow?: number;
+}): void {
+	if (state.inputBuffer !== undefined) inputBuffer = state.inputBuffer;
+	if (state.cursorPosition !== undefined) cursorPosition = state.cursorPosition;
+	if (state.oldInputBuffer !== undefined) oldInputBuffer = state.oldInputBuffer;
+	if (state.oldWrappedRows !== undefined) oldWrappedRows = state.oldWrappedRows;
+	if (state.oldCursorRow !== undefined) oldCursorRow = state.oldCursorRow;
+}
+
+export function _resetInputState(): void {
+	inputBuffer = "";
+	cursorPosition = 0;
+	oldInputBuffer = "";
+	oldWrappedRows = 0;
+	oldCursorRow = 0;
 }
