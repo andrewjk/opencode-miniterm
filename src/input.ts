@@ -69,21 +69,31 @@ export function renderLine(): void {
 	// typed something)
 	let start = 0;
 	let currentCol = 2;
+	let currentRow = 0;
 	let newWrappedRows = 0;
 	for (let i = 0; i < Math.min(oldInputBuffer.length, inputBuffer.length); i++) {
 		if (oldInputBuffer[i] !== inputBuffer[i]) {
 			break;
 		}
 		if (currentCol >= consoleWidth) {
-			process.stdout.write(ansi.CURSOR_DOWN(1));
 			currentCol = 0;
+			currentRow++;
 			newWrappedRows++;
 		}
 		currentCol++;
 		start++;
 	}
 
-	// Clear the old, changed, input
+	// Position the cursor at where the difference starts, then clear
+	// Check if we need to wrap after the comparison loop
+	if (currentCol >= consoleWidth) {
+		currentCol = 0;
+		currentRow++;
+		newWrappedRows++;
+	}
+	if (currentRow > 0) {
+		process.stdout.write(ansi.CURSOR_DOWN(currentRow));
+	}
 	process.stdout.write(ansi.CURSOR_COL(currentCol));
 	process.stdout.write(ansi.CLEAR_FROM_CURSOR);
 

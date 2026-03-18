@@ -275,5 +275,39 @@ describe("renderLine", () => {
 			// We should not emit this - only emit CURSOR_UP when rows > 0
 			expect(calls).not.toContain(ansi.CURSOR_UP(0));
 		});
+
+		it("should not move cursor during comparison loop (only calculate position)", () => {
+			// With 10-char width, prompt takes 2 chars, so 8 chars fit on first line
+			// Typing the 10th char when 9 chars already exist should not move cursor down
+			// during the comparison loop, only position at the end
+			Object.defineProperty(process.stdout, "columns", {
+				value: 10,
+				writable: true,
+				configurable: true,
+			});
+
+			_setInputState({
+				inputBuffer: "abcdefghij",
+				cursorPosition: 10,
+				oldInputBuffer: "abcdefghi",
+				oldWrappedRows: 1,
+				oldCursorRow: 1,
+			});
+
+			renderLine();
+
+			const calls = writeSpy.mock.calls.map((c: [string, ...unknown[]]) => c[0]);
+
+			// Should have CURSOR_UP to get to top
+			expect(calls).toContain(ansi.CURSOR_UP(1));
+
+			// Should NOT have CURSOR_DOWN during comparison (would be between UP and CLEAR)
+			const upIndex = calls.indexOf(ansi.CURSOR_UP(1));
+			const clearIndex = calls.indexOf(ansi.CURSOR_UP(1));
+			const downAfterUp = calls
+				.slice(upIndex, clearIndex)
+				.some((c: string) => c === ansi.CURSOR_DOWN(1));
+			expect(downAfterUp).toBe(false);
+		});
 	});
 });
