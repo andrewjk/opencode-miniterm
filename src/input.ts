@@ -59,8 +59,9 @@ export function renderLine(): void {
 	// Move to the start of the line (i.e. the prompt position)
 	process.stdout.write(ansi.CURSOR_HOME);
 	if (oldWrappedRows > 0) {
-		if (cursorPosition < inputBuffer.length) {
-			process.stdout.write(ansi.CURSOR_DOWN(oldWrappedRows - oldCursorRow));
+		let rowsToMove = oldWrappedRows - oldCursorRow;
+		if (cursorPosition < inputBuffer.length && rowsToMove > 0) {
+			process.stdout.write(ansi.CURSOR_DOWN(rowsToMove));
 		}
 		process.stdout.write(ansi.CURSOR_UP(oldWrappedRows));
 	}
