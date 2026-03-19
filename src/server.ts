@@ -342,6 +342,7 @@ function processDelta(state: State, partID: string, delta: string) {
 
 async function processDiff(state: State, diff: FileDiff[]) {
 	const parts: string[] = [];
+
 	for (const file of diff) {
 		const newAfter = file.after ?? "";
 		const oldAfter = state.lastFileAfter.get(file.file);
@@ -358,18 +359,19 @@ async function processDiff(state: State, diff: FileDiff[]) {
 	}
 
 	if (parts.length > 0) {
-		state.accumulatedResponse.push({ key: "diff", title: "files", text: parts.join("\n") });
+		const diffText = parts.join("\n");
+		state.accumulatedResponse.push({ key: "diff", title: "files", text: diffText });
 
-		const diffText = ansi.stripAnsiCodes(parts.join("\n"));
-		await writeToLog(`${diffText}\n\n`);
+		await writeToLog(`${ansi.stripAnsiCodes(diffText)}\n\n`);
 
 		render(state);
 	}
 }
 
 async function processTodos(state: State, todos: Todo[]) {
-	let todoListText = "Todo:\n";
+	const parts: string[] = [];
 
+	parts.push("Todo:");
 	for (let todo of todos) {
 		let todoText = "";
 		if (todo.status === "completed") {
@@ -378,13 +380,13 @@ async function processTodos(state: State, todos: Todo[]) {
 			todoText += "- [ ] ";
 		}
 		todoText += todo.content;
-		todoListText += todoText + "\n";
+		parts.push(todoText);
 	}
 
+	const todoListText = parts.join("\n");
 	state.accumulatedResponse.push({ key: "todo", title: "files", text: todoListText });
 
-	const cleanTodoText = ansi.stripAnsiCodes(todoListText);
-	await writeToLog(`${cleanTodoText}\n`);
+	await writeToLog(`${ansi.stripAnsiCodes(todoListText)}\n\n`);
 
 	render(state);
 }
