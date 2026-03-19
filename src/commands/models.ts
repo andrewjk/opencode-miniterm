@@ -116,6 +116,7 @@ async function handleKey(state: State, key: Key, str?: string) {
 				config.modelID = selected.modelID;
 				saveConfig();
 				const activeDisplay = await getActiveDisplay(state.client);
+				console.log();
 				console.log(activeDisplay);
 				console.log();
 			}

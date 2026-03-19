@@ -135,6 +135,7 @@ async function handleKey(state: State, key: Key, str?: string) {
 			if (selected) {
 				config.sessionIDs[process.cwd()] = selected.id;
 				saveConfig();
+				console.log();
 				console.log(`Switched to session: ${selected.id.substring(0, 8)}...`);
 				if (selected.title) {
 					console.log(`  Title: ${selected.title}`);
