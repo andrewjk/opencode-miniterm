@@ -75,17 +75,12 @@ export function renderLine(): void {
 		if (oldInputBuffer[i] !== inputBuffer[i]) {
 			break;
 		}
-		if (inputBuffer[i] === "\n") {
+		if (currentCol >= consoleWidth) {
+			currentCol = 0;
 			currentRow++;
-			currentCol = 2;
-		} else {
-			if (currentCol >= consoleWidth) {
-				currentCol = 0;
-				currentRow++;
-				newWrappedRows++;
-			}
-			currentCol++;
+			newWrappedRows++;
 		}
+		currentCol++;
 		start++;
 	}
 
@@ -112,48 +107,31 @@ export function renderLine(): void {
 	// Write the changes from the new input buffer
 	let renderExtent = Math.max(cursorPosition + 1, inputBuffer.length);
 	for (let i = start; i < renderExtent; i++) {
-		if (i < inputBuffer.length && inputBuffer[i] === "\n") {
+		if (currentCol >= consoleWidth) {
 			process.stdout.write("\n");
-			currentRow++;
-			currentCol = 2;
-		} else {
-			if (currentCol >= consoleWidth) {
-				process.stdout.write("\n");
-				currentCol = 0;
-				newWrappedRows++;
-			}
-			if (i < inputBuffer.length) {
-				process.stdout.write(inputBuffer[i]!);
-			}
-			currentCol++;
+			currentCol = 0;
+			newWrappedRows++;
 		}
+		if (i < inputBuffer.length) {
+			process.stdout.write(inputBuffer[i]!);
+		}
+		currentCol++;
 	}
 
 	// Calculate and move to the cursor's position
-	let row = 0;
-	let col = 2;
-	for (let i = 0; i < cursorPosition; i++) {
-		if (i < inputBuffer.length && inputBuffer[i] === "\n") {
-			row++;
-			col = 2;
-		} else {
-			col++;
-			if (col >= consoleWidth) {
-				row++;
-				col = 0;
-			}
-		}
-	}
+	let absolutePos = 2 + cursorPosition;
+	let newCursorRow = Math.floor(absolutePos / consoleWidth);
+	let newCursorCol = absolutePos % consoleWidth;
 	process.stdout.write(ansi.CURSOR_HOME);
-	let rowsToMove = newWrappedRows - row;
+	let rowsToMove = newWrappedRows - newCursorRow;
 	if (rowsToMove > 0) {
 		process.stdout.write(ansi.CURSOR_UP(rowsToMove));
 	}
-	process.stdout.write(ansi.CURSOR_COL(col));
+	process.stdout.write(ansi.CURSOR_COL(newCursorCol));
 
 	oldInputBuffer = inputBuffer;
 	oldWrappedRows = newWrappedRows;
-	oldCursorRow = row;
+	oldCursorRow = newCursorRow;
 }
 
 export async function handleKeyPress(state: State, str: string, key: Key) {
