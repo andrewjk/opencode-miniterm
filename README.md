@@ -4,6 +4,8 @@ A small front-end terminal UI for [OpenCode](https://github.com/anomalyco/openco
 
 > **Note:** This project is not affiliated with OpenCode.
 
+![A screenshot showing Miniterm responding to a user's input](/screenshot.png)
+
 ## Features
 
 - **Slash Commands** - Quick access to common operations
