@@ -137,7 +137,7 @@ function lastThinkingLines(text: string): string {
 
 function clearRenderedLines(state: State, linesToClear: number): void {
 	if (linesToClear > 0) {
-		state.write(`${ansi.CURSOR_UP(linesToClear)}${ansi.CLEAR_FROM_CURSOR}`);
+		state.write(`${ansi.CURSOR_UP(linesToClear)}${ansi.CURSOR_HOME}${ansi.CLEAR_FROM_CURSOR}`);
 	}
 	state.write(`${ansi.CURSOR_HOME}`);
 }
