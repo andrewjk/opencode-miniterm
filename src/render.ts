@@ -44,7 +44,7 @@ export function render(state: State, details = false): void {
 		if (!part.text.trim()) continue;
 
 		if (part.title === "thinking") {
-			let partText = transform(part.text.trimStart(), gfm, consoleRenderers).trimEnd();
+			let partText = ansi.stripAnsiCodes(transform(part.text.trimStart(), gfm, consoleRenderers).trimEnd());
 
 			// Show max 10 thinking lines
 			partText = details ? partText : lastThinkingLines(partText);
