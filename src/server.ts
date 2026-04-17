@@ -309,6 +309,12 @@ async function processText(state: State, part: Part) {
 async function processToolUse(state: State, part: Part) {
 	const toolPart = part as ToolPart;
 	const toolName = toolPart.tool || "unknown";
+
+	// We don't care about todowrite, a todo list will be shown after anyway
+	if (toolName === "todowrite") {
+		return
+	}
+
 	const toolInput =
 		toolPart.state.input["description"] ||
 		toolPart.state.input["filePath"] ||
