@@ -22,14 +22,14 @@
 		"@trivago/prettier-plugin-sort-imports": "^6.0.2",
 		"@types/bun": "latest",
 		"@typescript/native-preview": "7.0.0-dev.20260122.2",
-		"prettier": "^3.8.1",
+		"prettier": "^3.8.3",
 		"typescript": "^5.9.3"
 	},
 	"peerDependencies": {
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@opencode-ai/sdk": "^1.2.27",
-		"allmark": "^1.0.2"
+		"@opencode-ai/sdk": "^1.4.7",
+		"allmark": "^1.0.9"
 	}
 }

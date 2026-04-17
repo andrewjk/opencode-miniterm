@@ -1,5 +1,5 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
-import { gfm, parse, renderToConsole } from "allmark";
+import { gfm, transform, consoleRenderers } from "allmark";
 import * as ansi from "./ansi";
 import { config } from "./config";
 import type { State } from "./types";
@@ -44,8 +44,7 @@ export function render(state: State, details = false): void {
 		if (!part.text.trim()) continue;
 
 		if (part.title === "thinking") {
-			const doc = parse(part.text.trimStart(), gfm);
-			let partText = ansi.stripAnsiCodes(renderToConsole(doc));
+			let partText = transform(part.text.trimStart(), gfm, consoleRenderers).trimEnd();
 
 			// Show max 10 thinking lines
 			partText = details ? partText : lastThinkingLines(partText);
@@ -55,8 +54,7 @@ export function render(state: State, details = false): void {
 			output += "</ocmt-thinking>\n";
 		} else if (part.title === "response") {
 			// Show all response lines
-			const doc = parse(part.text.trimStart(), gfm);
-			const partText = renderToConsole(doc);
+			let partText = transform(part.text.trimStart(), gfm, consoleRenderers).trimEnd();
 			output += `💬 ${partText}\n\n`;
 		} else if (part.title === "tool") {
 			// TODO: Show max 10 tool/file lines?
