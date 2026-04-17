@@ -3,6 +3,7 @@ import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import * as ansi from "./ansi";
 import { config } from "./config";
 import { closeLogFile, createLogFile, writeToLog } from "./logs";
+import { startQuestion } from "./question";
 import { render, setTerminalTitle, stopAnimation, writePrompt } from "./render";
 import type { State } from "./types";
 import { formatDuration } from "./utils";
@@ -236,8 +237,14 @@ async function processEvent(state: State, event: Event): Promise<void> {
 			break;
 		}
 
-		default:
+		default: {
+			// HACK: Dodgy types
+			if ((event as any).type === "question.asked") {
+				startQuestion(event as any, state);
+			}
+
 			break;
+		}
 	}
 }
 
@@ -311,8 +318,8 @@ async function processToolUse(state: State, part: Part) {
 	const toolName = toolPart.tool || "unknown";
 
 	// We don't care about todowrite, a todo list will be shown after anyway
-	if (toolName === "todowrite") {
-		return
+	if (toolName === "todowrite" || toolName === "question") {
+		return;
 	}
 
 	const toolInput =

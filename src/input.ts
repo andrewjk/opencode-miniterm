@@ -18,6 +18,7 @@ import runCommand from "./commands/run";
 import sessionsCommand from "./commands/sessions";
 import undoCommand from "./commands/undo";
 import { getLogDir, isLoggingEnabled } from "./logs";
+import { getQuestionState, handleQuestionKeyPress } from "./question";
 import { startAnimation, stopAnimation, writePrompt } from "./render";
 import { sendMessage } from "./server";
 import type { State } from "./types";
@@ -142,6 +143,13 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 		return;
 	}
 
+	const questionState = getQuestionState();
+	if (questionState && questionState.active) {
+		if (handleQuestionKeyPress(str, key)) {
+			return;
+		}
+	}
+
 	for (let command of SLASH_COMMANDS) {
 		if (command.running && command.handleKey) {
 			await command.handleKey(state, key, str);
@@ -198,7 +206,7 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 				}
 				stopAnimation();
 				process.stdout.write(ansi.CURSOR_SHOW);
-				process.stdout.write(`\r  ${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n`);
+				process.stdout.write(`\r  ${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n\n`);
 				writePrompt();
 				isRequestActive = false;
 			} else {
