@@ -1,6 +1,7 @@
 import type { Key } from "node:readline";
 import * as ansi from "./ansi";
 import { config } from "./config";
+import { setIsRequestActive } from "./input";
 import { stopAnimation, writePrompt } from "./render";
 import type { State } from "./types";
 
@@ -51,16 +52,14 @@ export function setQuestionState(state: QuestionState | null): void {
 	questionState = state;
 }
 
-export function startQuestion(
-	event: QuestionEvent,
-	state: State,
-): QuestionState {
+export function startQuestion(event: QuestionEvent, state: State): QuestionState {
 	const { questions, id, tool } = event.properties;
 
 	// Abort the current request so we can answer the question
 	state.client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
 	stopAnimation();
 	process.stdout.write(ansi.CURSOR_SHOW);
+	setIsRequestActive(false);
 
 	currentState = state;
 	questionState = {
@@ -168,16 +167,17 @@ async function submitAnswer(answer: string): Promise<void> {
 
 	const questions = questionState.questions;
 	const stateCopy = currentState;
+	const currentQuestion = questions[0];
 
 	clearQuestion();
 	questionState = null;
 	currentState = null;
 
-	const currentQuestion = questions[0];
 	if (currentQuestion) {
 		process.stdout.write(`${ansi.CYAN}${currentQuestion.header}${ansi.RESET}\n`);
+		process.stdout.write(`  ${ansi.BRIGHT_BLACK}${currentQuestion.question}${ansi.RESET}\n`);
 	}
-	process.stdout.write(`  ${ansi.BRIGHT_WHITE}>${ansi.RESET} ${answer}\n\n`);
+	process.stdout.write(`  ${ansi.BRIGHT_WHITE}🗣️${ansi.RESET} ${answer}\n\n`);
 
 	try {
 		const result = await stateCopy.client.session.prompt({
@@ -226,8 +226,7 @@ export function renderQuestion(): void {
 			lines.push(`  ${prefix} ${index + 1}. ${option.label}`);
 			if (isSelected || option.description) {
 				const desc = option.description || "";
-				const descPrefix = isSelected ? `${ansi.GREEN}  ▼${ansi.RESET}` : "   ";
-				lines.push(`${descPrefix}   ${ansi.BRIGHT_BLACK}${desc}${ansi.RESET}`);
+				lines.push(`       ${ansi.BRIGHT_BLACK}${desc}${ansi.RESET}`);
 			}
 		});
 		lines.push("");

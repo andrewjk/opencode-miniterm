@@ -496,3 +496,7 @@ export function _resetInputState(): void {
 	oldWrappedRows = 0;
 	oldCursorRow = 0;
 }
+
+export function setIsRequestActive(value: boolean): void {
+	isRequestActive = value;
+}
