@@ -1,6 +1,6 @@
 {
 	"name": "opencode-miniterm",
-	"version": "1.0.19",
+	"version": "1.0.20",
 	"description": "A small front-end terminal UI for OpenCode",
 	"main": "src/index.ts",
 	"bin": {
