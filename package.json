@@ -29,7 +29,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@opencode-ai/sdk": "^1.4.7",
-		"allmark": "^1.0.9"
+		"@opencode-ai/sdk": "^1.14.18",
+		"allmark": "^1.0.10"
 	}
 }
