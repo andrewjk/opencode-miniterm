@@ -1,6 +1,6 @@
 import { gfm, transform, consoleRenderers } from "allmark";
 import { stripANSI } from "bun";
-import { describe, expect, it, vi } from "bun:test";
+import { describe, expect, it, vi, beforeEach, afterEach } from "bun:test";
 import * as ansi from "../src/ansi";
 import { render, wrapText } from "../src/render";
 import type { State } from "../src/types";
@@ -16,6 +16,15 @@ describe("render", () => {
 		write: vi.fn(),
 		lastFileAfter: new Map(),
 		...overrides,
+	});
+
+	beforeEach(() => {
+		// Force console width to 80 for consistent test output
+		Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+	});
+
+	afterEach(() => {
+		delete process.stdout.columns;
 	});
 
 	describe("clearRenderedLines", () => {
@@ -38,7 +47,7 @@ describe("render", () => {
 
 			render(state);
 
-			expect(write).toHaveBeenCalledWith("\x1b[5A\x1b[0J");
+			expect(write).toHaveBeenCalledWith("\x1b[5A\x1b[0G\x1b[0J");
 		});
 
 		it("should clear previous accumulated parts", () => {
@@ -142,10 +151,16 @@ describe("render", () => {
 
 			const output = write.mock.calls.map((c) => c[0]).join("");
 			expect(output).toContain(
-				`${ansi.BRIGHT_BLACK}  💭 Cookware and bakeware is food preparation equipment, such as cooking pots, pans, baking sheets etc. used in kitchens. Cookware is used on a stove${ansi.RESET}`,
+				`${ansi.BRIGHT_BLACK}  💭 Cookware and bakeware is food preparation equipment, such as cooking pots,${ansi.RESET}`,
 			);
 			expect(output).toContain(
-				`${ansi.BRIGHT_BLACK}  or range cooktop, while bakeware is used in an oven. Some utensils are considered both cookware and bakeware.${ansi.RESET}`,
+				`${ansi.BRIGHT_BLACK}  pans, baking sheets etc. used in kitchens. Cookware is used on a stove or${ansi.RESET}`,
+			);
+			expect(output).toContain(
+				`${ansi.BRIGHT_BLACK}  range cooktop, while bakeware is used in an oven. Some utensils are considered${ansi.RESET}`,
+			);
+			expect(output).toContain(
+				`${ansi.BRIGHT_BLACK}  both cookware and bakeware.${ansi.RESET}`,
 			);
 			expect(output).not.toContain("first");
 		});
@@ -457,6 +472,27 @@ describe("wrapText", () => {
 			// wrapText should preserve that spacing (strip ANSI for comparison)
 			const stripped = russiaRow ? stripANSI(russiaRow) : "";
 			expect(stripped).toContain("│ Russia  │       146m │");
+		});
+
+		it("should preserve spaces from allmark code output", () => {
+			const markdown = `
+\`\`\`
+function x() {
+	return "hello";
+}
+
+const x = "abc";
+\`\`\`
+`;
+			const transformed = transform(markdown, gfm, consoleRenderers);
+			const result = stripANSI(wrapText(transformed, 80).join("\n"));
+			expect(result).toBe(`  ┌─
+  │ function x() {
+  │     return "hello";
+  │ }
+  │
+  │ const x = "abc";
+  └─`)
 		});
 	});
 });

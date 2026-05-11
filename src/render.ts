@@ -234,6 +234,7 @@ export function wrapText(text: string, width: number): string[] {
 			pushLine();
 			atLineStart = true;
 			lineIndent = "";
+			spaces = "";
 			i++;
 		} else if (char === "\r") {
 			i++;
