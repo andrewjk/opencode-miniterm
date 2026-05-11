@@ -1,6 +1,6 @@
 {
 	"name": "opencode-miniterm",
-	"version": "1.0.20",
+	"version": "1.0.21",
 	"description": "A small front-end terminal UI for OpenCode",
 	"main": "src/index.ts",
 	"bin": {
@@ -29,7 +29,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@opencode-ai/sdk": "^1.14.18",
-		"allmark": "^1.0.10"
+		"@opencode-ai/sdk": "^1.14.48",
+		"allmark": "^1.0.13"
 	}
 }
