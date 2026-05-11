@@ -177,7 +177,7 @@ export function wrapText(text: string, width: number): string[] {
 		const wouldFit =
 			visibleLength === 0
 				? preSpacesLength + wordVisibleLength <= width
-				: visibleLength + 1 + preSpacesLength + wordVisibleLength <= width;
+				: visibleLength + preSpacesLength + wordVisibleLength <= width;
 
 		if (wouldFit) {
 			currentLine += preSpaces + word;
