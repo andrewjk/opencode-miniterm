@@ -166,21 +166,22 @@ export function wrapText(text: string, width: number): string[] {
 		visibleLength = indentLength;
 	};
 
-	const addWord = (word: string, wordVisibleLength: number) => {
+	const addWord = (word: string, wordVisibleLength: number, preSpaces: string) => {
 		if (!word || wordVisibleLength === 0) return;
+
+		// Output prespaces + word if it would fit on the line
+		// Otherwise, wrap to the next line and only print the word
+
+		const preSpacesLength = preSpaces.length;
 
 		const wouldFit =
 			visibleLength === 0
-				? wordVisibleLength <= width
-				: visibleLength + 1 + wordVisibleLength <= width;
+				? preSpacesLength + wordVisibleLength <= width
+				: visibleLength + 1 + preSpacesLength + wordVisibleLength <= width;
 
 		if (wouldFit) {
-			if (visibleLength > indentLength) {
-				currentLine += " ";
-				visibleLength++;
-			}
-			currentLine += word;
-			visibleLength += wordVisibleLength;
+			currentLine += preSpaces + word;
+			visibleLength += preSpacesLength + wordVisibleLength;
 		} else if (visibleLength > indentLength) {
 			pushLine();
 			currentLine = INDENT + word;
@@ -193,7 +194,6 @@ export function wrapText(text: string, width: number): string[] {
 			for (let w = 0; w < word.length; ) {
 				let segment = "";
 				let segmentVisible = 0;
-				let segmentStart = w;
 
 				while (w < word.length && segmentVisible < wordWidth) {
 					const char = word[w];
@@ -226,6 +226,7 @@ export function wrapText(text: string, width: number): string[] {
 
 	let atLineStart = true;
 	let lineIndent = "";
+	let spaces = "";
 	while (i < text.length) {
 		const char = text[i];
 
@@ -239,6 +240,10 @@ export function wrapText(text: string, width: number): string[] {
 		} else if (char === " " || char === "\t") {
 			if (atLineStart) {
 				lineIndent += char;
+			} else if (char === " ") {
+				spaces += " ";
+			} else if (char === "\t") {
+				addWord("    ", 4, "");
 			}
 			i++;
 		} else {
@@ -266,9 +271,10 @@ export function wrapText(text: string, width: number): string[] {
 				}
 			}
 
-			addWord(word, wordVisibleLength);
+			addWord(word, wordVisibleLength, spaces);
 			atLineStart = false;
 			lineIndent = "";
+			spaces = "";
 		}
 	}
 

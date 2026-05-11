@@ -1,3 +1,4 @@
+import { gfm, transform, consoleRenderers } from "allmark";
 import { stripANSI } from "bun";
 import { describe, expect, it, vi } from "bun:test";
 import * as ansi from "../src/ansi";
@@ -443,6 +444,19 @@ describe("wrapText", () => {
 			const result = wrapText("🔧 Using `bash`\nRunning command to install dependencies", 35);
 			expect(result[0]).toContain("🔧 Using");
 			expect(result[1]).toContain("Running command");
+		});
+
+		it("should preserve spaces from allmark table output", () => {
+			const markdown = `| Country    | Population   |
+|------------|------:|
+| Russia     |  146m |`;
+			const transformed = transform(markdown, gfm, consoleRenderers);
+			const result = wrapText(transformed, 80);
+			const russiaRow = result.find((l: string) => l.includes("Russia"));
+			// allmark creates "│ Russia  │ 146,000,000 │" with specific spacing
+			// wrapText should preserve that spacing (strip ANSI for comparison)
+			const stripped = russiaRow ? stripANSI(russiaRow) : "";
+			expect(stripped).toContain("│ Russia  │       146m │");
 		});
 	});
 });
