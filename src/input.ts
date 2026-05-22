@@ -346,6 +346,21 @@ async function getFileCompletions(pattern: string): Promise<string[]> {
 }
 
 async function acceptInput(state: State): Promise<void> {
+	// Move cursor to end of prompt text before writing newline,
+	// so output appears below the prompt, not below cursor position
+	const consoleWidth = process.stdout.columns || 80;
+	const endAbsolutePos = 2 + inputBuffer.length;
+	const cursorAbsolutePos = 2 + cursorPosition;
+	const cursorRow = Math.floor(cursorAbsolutePos / consoleWidth);
+	const endRow = Math.floor(endAbsolutePos / consoleWidth);
+	const rowsToEnd = endRow - cursorRow;
+
+	if (rowsToEnd > 0) {
+		process.stdout.write(ansi.CURSOR_DOWN(rowsToEnd));
+	}
+	const endCol = endAbsolutePos % consoleWidth;
+	process.stdout.write(ansi.CURSOR_COL(endCol));
+
 	process.stdout.write("\n");
 
 	const input = inputBuffer.trim();
