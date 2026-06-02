@@ -16,6 +16,7 @@ export const BRIGHT_BLACK = "\x1b[90m";
 export const BOLD_BRIGHT_BLACK = "\x1b[1;90m";
 export const RED = "\x1b[31m";
 export const GREEN = "\x1b[32m";
+export const YELLOW = "\x1b[33m";
 export const BLUE = "\x1b[34m";
 export const CYAN = "\x1b[36m";
 export const BOLD_MAGENTA = "\x1b[1;35m";

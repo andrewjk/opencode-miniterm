@@ -3,6 +3,7 @@ import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import * as ansi from "./ansi";
 import { config } from "./config";
 import { closeLogFile, createLogFile, writeToLog } from "./logs";
+import { startPermission } from "./permission";
 import { startQuestion } from "./question";
 import { render, setTerminalTitle, stopAnimation, writePrompt } from "./render";
 import type { State } from "./types";
@@ -241,6 +242,11 @@ async function processEvent(state: State, event: Event): Promise<void> {
 			// HACK: Dodgy types
 			if ((event as any).type === "question.asked") {
 				startQuestion(event as any, state);
+			} else if (
+				(event as any).type === "permission.asked" ||
+				(event as any).type === "permission.updated"
+			) {
+				startPermission(event as any, state);
 			}
 
 			break;

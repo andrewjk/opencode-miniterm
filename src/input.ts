@@ -18,6 +18,7 @@ import runCommand from "./commands/run";
 import sessionsCommand from "./commands/sessions";
 import undoCommand from "./commands/undo";
 import { getLogDir, isLoggingEnabled } from "./logs";
+import { getPermissionState, handlePermissionKeyPress } from "./permission";
 import { getQuestionState, handleQuestionKeyPress } from "./question";
 import { startAnimation, stopAnimation, writePrompt } from "./render";
 import { sendMessage } from "./server";
@@ -146,6 +147,13 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 	const questionState = getQuestionState();
 	if (questionState && questionState.active) {
 		if (handleQuestionKeyPress(str, key)) {
+			return;
+		}
+	}
+
+	const permissionState = getPermissionState();
+	if (permissionState && permissionState.active) {
+		if (handlePermissionKeyPress(str, key)) {
 			return;
 		}
 	}
