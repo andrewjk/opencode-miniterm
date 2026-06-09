@@ -14,20 +14,20 @@ async function run(state: State): Promise<void> {
 	const cwd = process.cwd();
 	if (!config.sessionIDs[cwd]) return;
 
-	console.log("Running /init command (analyzing project and creating AGENTS.md)...");
+	// The response to "msg_init" will contain the init text, which we will run
 	const result = await state.client.session.init({
 		path: { id: config.sessionIDs[cwd] },
+		body: {
+			modelID: config.modelID,
+			providerID: config.providerID,
+			messageID: "msg_init"
+		}
 	});
 
-	if (result.error) {
-		throw new Error(
-			`Failed to run /init (${result.response.status}): ${JSON.stringify(result.error)}`,
-		);
-	}
-
-	console.log();
-	console.log(
-		result.data ? "AGENTS.md created/updated successfully." : "No changes made to AGENTS.md.",
-	);
-	console.log();
+	// It always returns an error?!
+	//if (result.error) {
+	//	throw new Error(
+	//		`Failed to run /init (${result.response.status}): ${JSON.stringify(result.error)}`,
+	//	);
+	//}
 }

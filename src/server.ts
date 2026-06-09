@@ -134,6 +134,8 @@ export async function sendMessage(state: State, message: string) {
 	}
 }
 
+let initText = "";
+
 async function processEvent(state: State, event: Event): Promise<void> {
 	if (retryInterval && event.type !== "session.status") {
 		clearInterval(retryInterval);
@@ -146,6 +148,11 @@ async function processEvent(state: State, event: Event): Promise<void> {
 		case "message.part.updated": {
 			const part = event.properties.part;
 			const delta = event.properties.delta;
+			if (part.messageID === "msg_init") {
+				// @ts-ignore
+				initText = part.text;
+				break;
+			}
 			if (part) {
 				await processPart(state, part);
 			}
@@ -185,7 +192,12 @@ async function processEvent(state: State, event: Event): Promise<void> {
 					clearInterval(retryInterval);
 					retryInterval = null;
 				}
-				writePrompt();
+				if (initText) {
+					sendMessage(state, initText)
+					initText = "";
+				} else {
+					writePrompt();
+				}
 			}
 			if (event.type === "session.status" && event.properties.status.type === "retry") {
 				const message = event.properties.status.message;

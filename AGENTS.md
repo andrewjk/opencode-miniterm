@@ -1,278 +1,53 @@
 # OpenCode Miniterm - Agent Guidelines
 
-## Build & Development Commands
-
-### Run the application
+## Commands
 
 ```bash
-bun run src/index.ts
-# Or just:
-bun src/index.ts
+bun run dev            # Run the app
+bun run check          # Typecheck (uses tsgo, NOT tsc)
+bun test               # Run all tests
+bun test test/input.test.ts   # Run a single test file
+bun run test:tmux      # Tmux readline integration test
+bunx prettier --write "**/*.{ts,json,md}"  # Format (no lint tool configured)
 ```
 
-### Build (when bundler is added)
+**Typecheck uses `tsgo`** (from `@typescript/native-preview`), not `tsc`. The `bun run check` script runs `tsgo --noEmit`. Running `tsc --noEmit` will fail or produce different results.
 
-```bash
-bun build src/index.ts --outdir dist
-```
+No ESLint or other linter is configured. Prettier is the only formatter.
 
-### Testing
+## Architecture
 
-No test framework is currently configured. Add one of these to package.json:
+A Bun terminal UI app that connects to an OpenCode headless server via `@opencode-ai/sdk`.
 
-- **Bun Test**: `bun test` (recommended - built-in, fast)
-- **Jest**: `npm test` or `bun run test`
-- **Vitest**: `vitest`
+- **Entry point**: `src/index.ts` — starts server, creates/resumes session, enters raw terminal mode
+- **`src/server.ts`** — SSE event stream processing, message sending, rendering pipeline. Handles events like `message.part.updated`, `session.diff`, `todo.updated`, `permission.asked`, `question.asked`
+- **`src/input.ts`** — Raw keypress handling (readline), slash commands, file `@`-completion
+- **`src/render.ts`** — ANSI escape code rendering, incremental display updates, animation
+- **`src/commands/`** — Each slash command is a separate module exporting a `Command` object
+- **`src/types.ts`** — `State` (mutable singleton passed to all handlers), `Command`, `AccumulatedPart`
+- **`src/config.ts`** — Config at `~/.config/opencode-miniterm/opencode-miniterm.json`, overridable via `OPENCODE_MT_CONFIG_CONTENT` env var
 
-To run a single test (once configured):
+Key dependencies: `@opencode-ai/sdk` (OpenCode client + server + types), `allmark` (markdown rendering).
 
-- Bun Test: `bun test --test-name-pattern "testName"`
-- Jest: `npm test -- testName`
-- Vitest: `vitest run testName`
+The app uses stdin raw mode with manual ANSI escape code output — no terminal framework (no Ink, Blessed, etc.).
 
-### Linting & Formatting (recommended additions)
+## Gotchas
 
-Install and configure these tools:
+- **`verbatimModuleSyntax: true`** in tsconfig — always use `import type` for type-only imports
+- **Part types** from the SDK are: `step-start`, `reasoning`, `text`, `step-finish`, `tool` (not `tool_use`/`tool_result`)
+- **`model` field is required** on `session.prompt()` calls — omitting it causes the request to hang
+- **`/models` SDK route returns HTML**, not JSON — use `/config/providers` for programmatic model info
+- SSE event delta is at `event.properties.delta` (not nested under `.part`)
+- `processing` flag in `server.ts` controls whether `text` parts render (toggled by `step-start`)
+- Some event types aren't in the SDK types yet — handled via `(event as any).type` casts (e.g., `question.asked`, `permission.asked`)
+- Config env override `OPENCODE_MT_CONFIG_CONTENT` takes priority over the config file
 
-```bash
-bun add -d eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser prettier
-```
+## Conventions
 
-Commands to add to package.json:
-
-```json
-{
-	"lint": "eslint src --ext .ts",
-	"lint:fix": "eslint src --ext .ts --fix",
-	"format": "prettier --write \"src/**/*.ts\"",
-	"format:check": "prettier --check \"src/**/*.ts\"",
-	"typecheck": "tsc --noEmit"
-}
-```
-
-## Code Style Guidelines
-
-### TypeScript Configuration
-
-- Use strict mode: `"strict": true` in tsconfig.json
-- Target ES2022+ for modern Node/Bun features
-- Use `moduleResolution: "bundler"` for Bun compatibility
-
-### Imports
-
-- Use ES6 imports (ESM): `import { something } from 'module'`
-- Group imports in this order:
-  1. Node/Bun built-ins
-  2. External packages
-  3. Internal modules
-- Use absolute imports where possible (configure path aliases in tsconfig.json)
-- Avoid default exports; prefer named exports for better tree-shaking
-
-### Formatting
-
-- Use 2 spaces for indentation
-- Use single quotes for strings
-- Use semicolons at end of statements
-- Maximum line length: 100 characters
-- Trailing commas in multi-line arrays/objects
-- Spaces around operators: `a = b + c` not `a=b+c`
-
-### Types & Type Safety
-
-- Always provide explicit return types for functions
-- Use `interface` for object shapes, `type` for unions/primitives
-- Avoid `any`; use `unknown` when type is truly unknown
-- Use type guards for runtime type checking
-- Leverage Bun's built-in type definitions (from `bun-types`)
-
-### Naming Conventions
-
-- **Files**: kebab-case: `my-service.ts`
-- **Variables/Functions**: camelCase: `myFunction`
-- **Classes**: PascalCase: `MyService`
-- **Constants**: UPPER_SNAKE_CASE for global constants: `MAX_RETRIES`
-- **Private members**: Leading underscore: `_privateMethod`
-- **Types/Interfaces**: PascalCase, often with suffixes: `UserService`, `ConfigOptions`
-
-### Error Handling
-
-- Use try/catch for async operations
-- Create custom error classes for domain-specific errors:
-  ```ts
-  class TerminalError extends Error {
-  	constructor(
-  		message: string,
-  		public code: string,
-  	) {
-  		super(message);
-  		this.name = "TerminalError";
-  	}
-  }
-  ```
-- Always include error context in error messages
-- Log errors appropriately (avoid logging secrets)
-- Never swallow errors silently
-
-### Async/Promise Handling
-
-- Use async/await over .then()/.catch()
-- Handle promise rejections: `process.on('unhandledRejection')`
-- Use Bun's optimized APIs where available (e.g., `Bun.file()`)
-- Implement timeouts for network requests
-
-### Code Organization
-
-- Structure by feature/domain, not by file type
-- Keep files focused: one responsibility per file
-- Export at file end; avoid export分散
-- Use barrel files (`index.ts`) for cleaner imports
-
-### Comments
-
-- Use JSDoc for public APIs: `/** @description ... */`
-- Comment WHY, not WHAT
-- Keep comments current with code changes
-- Avoid inline comments for obvious logic
-
-### Performance (Bun-Specific)
-
-- Leverage Bun's fast I/O: `Bun.write()`, `Bun.file()`
-- Use `TextEncoder`/`TextDecoder` for encoding
-- Prefer native over polyfills
-- Benchmark before optimizing
-
-## Project Context
-
-This is an alternative terminal UI for OpenCode. Focus on:
-
-- Fast, responsive terminal rendering
-- Clean CLI UX with good error messages
-- Efficient resource usage (memory/CPU)
-- Compatibility with OpenCode's API
-
-## File Organization
-
-- Create all temporary files in `./tmp` directory
-- Avoid using `/tmp` or system temp directories
-- The `tmp` folder is gitignored and safe for transient files
-- Clean up temporary files after use to keep the directory organized
-
-## OpenCode Server Integration
-
-### Starting the Server
-
-- Use `opencode serve` to start a headless HTTP server (not `opencode server`)
-- Default URL: `http://127.0.0.1:4096` (port may vary, can be 0/random)
-- Server requires 2-3 seconds to initialize before accepting requests
-- Spawn with `stdio: ['ignore', 'pipe', 'pipe']` to avoid interfering with parent I/O
-- Always handle SIGINT to properly shut down the server process
-
-### Authentication
-
-- Server may require HTTP Basic Auth if `OPENCODE_SERVER_PASSWORD` is set
-- Username: `OPENCODE_SERVER_USERNAME` env var (default: 'opencode')
-- Password: `OPENCODE_SERVER_PASSWORD` env var (required if server has password set)
-- Include `Authorization: Basic <base64(username:password)>` header when password is set
-- Include `Content-Type: application/json` header for all POST requests
-- Check env vars at startup: `echo $OPENCODE_SERVER_PASSWORD` to verify it's set
-
-### Creating Sessions
-
-```ts
-POST /session
-Headers: { "Content-Type": "application/json", "Authorization": "Basic <creds>" }
-Body: {}
-Response: { id: string, title?: string, ... }
-```
-
-### Getting Available Models
-
-```ts
-GET /config/providers
-Headers: { "Authorization": "Basic <creds>" }
-Response: { providers: Provider[], default: { [key: string]: string } }
-```
-
-Note: `/models` endpoint returns HTML documentation, not JSON. Use `/config/providers` for programmatic access.
-
-### Sending Messages
-
-```ts
-POST /session/:id/message
-Headers: { "Content-Type": "application/json", "Authorization": "Basic <creds>" }
-Body: {
-  model: {
-    modelID: 'big-pickle',
-    providerID: 'opencode'
-  },
-  parts: [{ type: 'text', text: 'your message here' }]
-}
-Response: { info: Message, parts: Part[] }
-```
-
-### Getting Session Messages
-
-```ts
-GET /session/:id/message
-Headers: { "Authorization": "Basic <creds>" }
-Response: { info: Message, parts: Part[] }[]
-```
-
-### Undoing Messages (Revert)
-
-```ts
-POST /session/:id/revert
-Headers: { "Content-Type": "application/json", "Authorization": "Basic <creds>" }
-Body: { messageID: string, partID?: string }
-Response: { id: string, revert: { messageID, snapshot, diff } }
-```
-
-Typically used to undo the last assistant message by fetching messages first, then reverting the last one.
-
-**IMPORTANT**: The `model` field is required when sending messages. Without it, the request will hang indefinitely. Get available models from `GET /config/providers` or `GET /models`. Common models:
-
-- `big-pickle` (opencode provider) - default, high quality
-- `glm-5-free` (opencode provider) - free GLM model
-- `gpt-5-nano` (opencode provider) - fast GPT model
-
-### Response Format
-
-- Response has `{ info, parts }` structure
-- Parts can be: `step-start`, `reasoning`, `text`, `step-finish`, `tool_use`, `tool_result`
-- `step-start` - Indicates beginning of a thinking/processing step
-- `reasoning` - AI's internal reasoning/thinking process (shows "💭 Thinking...")
-- `text` - The actual AI response to display to the user
-- `step-finish` - Indicates completion of a thinking/processing step
-- `tool_use` - Indicates an AI tool is being used
-- `tool_result` - Contains result of tool execution (can be filtered out)
-- Display reasoning and text parts to the user for transparency
-
-### Server-Sent Events (SSE)
-
-- Connect to event stream at `/event` for real-time updates
-- Events include: `message.part.updated`, `session.status`, `session.updated`, `message.updated`, `session.diff`, `session.idle`
-- Event structure: `{ type: string, properties: {...} }`
-- Parts can be streamed via `message.part.updated` events with delta updates
-- Delta is at `event.properties.delta`, NOT in `event.properties.part.delta`
-- Use `seenParts` set to track processed parts and avoid duplicate display
-- Delta updates allow streaming reasoning and text for better UX
-
-### Error Handling
-
-- Server returns 401 Unauthorized when authentication is missing/invalid
-- Handle connection errors (server may not be ready yet)
-- Always parse error text from response for debugging
-- Bun's fetch doesn't timeout by default - use AbortController for timeouts:
-  ```ts
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 180000);
-  const response = await fetch(url, { signal: controller.signal });
-  clearTimeout(timeout);
-  ```
-
-## Safety Notes
-
-- Never commit API keys, tokens, or secrets
-- Validate all user inputs
-- Sanitize terminal output to prevent injection
-- Use environment variables for configuration
+- Tabs for indentation (per `.prettierrc`)
+- Import sorting via `@trivago/prettier-plugin-sort-imports`
+- No comments in code unless asked
+- Tests in `test/` directory, importing directly from `src/`
+- Tests use `bun:test` (`describe`, `it`, `expect`, `spyOn`, `vi`, `beforeEach`, `afterEach`)
+- Tests mock `process.stdout.write` and `process.stdout.columns` for terminal output
+- `tmp/` directory for temporary files (gitignored)
