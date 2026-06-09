@@ -44,7 +44,8 @@ export function render(state: State, details = false): void {
 		if (!part.text.trim()) continue;
 
 		if (part.title === "thinking") {
-			let partText = ansi.stripAnsiCodes(transform(part.text.trimStart(), gfm, consoleRenderers).trimEnd());
+			const lineWidth = (process.stdout.columns || 80) - 2;
+			let partText = ansi.stripAnsiCodes(transform(part.text.trimStart(), gfm, consoleRenderers, { lineWidth }).trimEnd());
 
 			// Show max 10 thinking lines
 			partText = details ? partText : lastThinkingLines(partText);
@@ -54,7 +55,8 @@ export function render(state: State, details = false): void {
 			output += "</ocmt-thinking>\n";
 		} else if (part.title === "response") {
 			// Show all response lines
-			let partText = transform(part.text.trimStart(), gfm, consoleRenderers).trimEnd();
+			const lineWidth = (process.stdout.columns || 80) - 2;
+			let partText = transform(part.text.trimStart(), gfm, consoleRenderers, { lineWidth }).trimEnd();
 			output += `💬 ${partText}\n\n`;
 		} else if (part.title === "tool") {
 			// TODO: Show max 10 tool/file lines?

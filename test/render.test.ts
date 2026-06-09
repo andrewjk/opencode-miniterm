@@ -465,13 +465,27 @@ describe("wrapText", () => {
 			const markdown = `| Country    | Population   |
 |------------|------:|
 | Russia     |  146m |`;
-			const transformed = transform(markdown, gfm, consoleRenderers);
+			const transformed = transform(markdown, gfm, consoleRenderers, { lineWidth: 78 });
 			const result = wrapText(transformed, 80);
 			const russiaRow = result.find((l: string) => l.includes("Russia"));
 			// allmark creates "│ Russia  │ 146,000,000 │" with specific spacing
 			// wrapText should preserve that spacing (strip ANSI for comparison)
 			const stripped = russiaRow ? stripANSI(russiaRow) : "";
 			expect(stripped).toContain("│ Russia  │       146m │");
+		});
+
+		it("should not wrap wide table rows", () => {
+			const markdown = `| Country | Description |
+|---------|-------------|
+| Russia | Short desc |`;
+			const transformed = transform(markdown, gfm, consoleRenderers, { lineWidth: 78 });
+			const result = wrapText(transformed, 80);
+			const russiaRow = result.find((l: string) => l.includes("Russia"));
+			const stripped = russiaRow ? stripANSI(russiaRow) : "";
+			expect(stripped).toContain("│ Russia");
+			expect(stripped).toContain("Short desc");
+			const russiaLines = result.filter((l: string) => stripANSI(l).includes("Russia"));
+			expect(russiaLines.length).toBe(1);
 		});
 
 		it("should preserve spaces from allmark code output", () => {
@@ -484,7 +498,7 @@ function x() {
 const x = "abc";
 \`\`\`
 `;
-			const transformed = transform(markdown, gfm, consoleRenderers);
+			const transformed = transform(markdown, gfm, consoleRenderers, { lineWidth: 78 });
 			const result = stripANSI(wrapText(transformed, 80).join("\n"));
 			expect(result).toBe(`  ┌─
   │ function x() {
