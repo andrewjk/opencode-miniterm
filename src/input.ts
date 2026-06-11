@@ -49,6 +49,8 @@ let historyIndex = history.length;
 let selectedCompletion = 0;
 let completionCycling = false;
 let lastSpaceTime = 0;
+let lastKeyPressTime = 0;
+let rapidKeyPressCount = 0;
 let currentInputBuffer: string | null = null;
 let isRequestActive = false;
 
@@ -138,6 +140,15 @@ export function renderLine(): void {
 }
 
 export async function handleKeyPress(state: State, str: string, key: Key) {
+	const now = Date.now();
+	const timeSinceLastKey = now - lastKeyPressTime;
+	lastKeyPressTime = now;
+	if (timeSinceLastKey < 10) {
+		rapidKeyPressCount++;
+	} else {
+		rapidKeyPressCount = 0;
+	}
+
 	if (key.ctrl && key.name === "c") {
 		process.stdout.write("\n");
 		state.shutdown();
@@ -226,7 +237,17 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 			return;
 		}
 		case "return": {
-			await acceptInput(state);
+			// If part of a rapid key sequence (paste), insert \n literal
+			if (rapidKeyPressCount > 2) {
+				inputBuffer =
+					inputBuffer.slice(0, cursorPosition) + "\\n" + inputBuffer.slice(cursorPosition);
+				cursorPosition += 2;
+				currentInputBuffer = null;
+				renderLine();
+			} else {
+				rapidKeyPressCount = 0;
+				await acceptInput(state);
+			}
 			return;
 		}
 		case "backspace": {
@@ -278,9 +299,11 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 				}
 				lastSpaceTime = now;
 			} else if (str) {
+				// Replace newlines with literal \n to prevent accidental execution on paste
+				const sanitized = str.replace(/\n/g, "\\n");
 				inputBuffer =
-					inputBuffer.slice(0, cursorPosition) + str + inputBuffer.slice(cursorPosition);
-				cursorPosition += str.length;
+					inputBuffer.slice(0, cursorPosition) + sanitized + inputBuffer.slice(cursorPosition);
+				cursorPosition += sanitized.length;
 			}
 			currentInputBuffer = null;
 		}
