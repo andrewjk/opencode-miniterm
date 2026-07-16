@@ -78,12 +78,37 @@ let oldCursorRow = 0;
 let oldInputDrawn = false;
 let oldHeaderRows = 0;
 
+// Todo summary shown above the spinner line ("2/4 tasks done"). Tracks the
+// latest todo set so it can be frozen at the final state until a new set
+// arrives or the prompt completes. null = no todos to show.
+interface TodoSummary {
+	done: number;
+	total: number;
+}
+let todoSummary: TodoSummary | null = null;
+
+// Update the todo summary. Called from server.ts when a todo.updated event
+// arrives. A fresh set (total change) replaces the frozen summary.
+export function setTodoSummary(done: number, total: number): void {
+	todoSummary = { done, total };
+}
+
+// Clear the todo summary (e.g. when a prompt completes).
+export function clearTodoSummary(): void {
+	todoSummary = null;
+}
+
 // Move the cursor to the top of the live area (the row directly below the
 // rendered output), column 0. The cursor is assumed to be somewhere within the
 // live area; we move up by its row offset within that area.
 export function navigateToPromptRow(): void {
 	process.stdout.write(ansi.CURSOR_HOME);
-	const liveRow = oldInputDrawn ? oldHeaderRows + oldCursorRow : 0;
+	// When input is drawn, the cursor sits `oldHeaderRows + oldCursorRow`
+	// rows below the live-area top. In spinner-only mode (no input) the
+	// cursor rests on the last painted header line (the spinner), which is
+	// `oldHeaderRows - 1` rows below the top. Accounting for this is what
+	// stops the todo summary from stacking up on every animation tick.
+	const liveRow = oldInputDrawn ? oldHeaderRows + oldCursorRow : Math.max(0, oldHeaderRows - 1);
 	if (liveRow > 0) {
 		process.stdout.write(ansi.CURSOR_UP(liveRow));
 	}
@@ -97,16 +122,35 @@ export function navigateToPromptRow(): void {
 function paintLiveAreaFull(): void {
 	const consoleWidth = process.stdout.columns || 80;
 
+	const wantSpinner = isRequestActive();
+	const wantInput = userTyping || !isRequestActive();
+	const showTodo = !!(todoSummary && todoSummary.total > 0);
+
+	// Cursor is already at the live-area top (positioned by navigateToPromptRow).
+	// Clear from there downward.
 	process.stdout.write(ansi.CURSOR_HOME);
 	process.stdout.write(ansi.CLEAR_FROM_CURSOR);
 
-	const wantSpinner = isRequestActive();
-	const wantInput = userTyping || !isRequestActive();
-
 	let headerRows = 0;
+	if (showTodo) {
+		const consoleWidth = process.stdout.columns || 80;
+		const done = todoSummary!.done;
+		const total = todoSummary!.total;
+		const complete = done >= total;
+		//const color = complete ? ansi.GREEN : ansi.CYAN;
+		const summary = `  ${ansi.BRIGHT_BLACK}${ansi.CYAN}${done}/${total} todos done${ansi.RESET}`;
+		// Pad to full width so the summary fully overwrites whatever was on
+		// this row previously (e.g. the output's last line or a prior spinner).
+		process.stdout.write(`${ansi.padToWidth(summary, consoleWidth)}\n`);
+		headerRows = 1;
+	}
+
 	if (wantSpinner) {
 		paintSpinnerLine();
-		headerRows = 1;
+		headerRows += 1;
+	} else if (headerRows > 0) {
+		// advance to the next row so the prompt doesn't overwrite the summary
+		process.stdout.write("\n");
 	}
 
 	if (wantInput) {

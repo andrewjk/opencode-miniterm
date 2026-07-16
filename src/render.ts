@@ -83,7 +83,8 @@ export function render(state: State, details = false): void {
 	}
 
 	if (output) {
-		const lines = wrapText(output, process.stdout.columns || 80);
+		const width = process.stdout.columns || 80;
+		const lines = wrapText(output, width);
 
 		// Move cursor to the output region bottom (just below the last rendered
 		// line), accounting for any input rows currently drawn below it.
@@ -100,9 +101,13 @@ export function render(state: State, details = false): void {
 		let linesToClear = state.renderedLines.length - firstDiff;
 		clearRenderedLines(state, linesToClear);
 
-		// Write new lines
+		// Write new lines. Each line is padded to the full terminal width so
+		// that stale trailing characters from a previously-longer line are
+		// overwritten (the bulk clear above only runs at the diff point; once
+		// written, subsequent paints that reuse these rows rely on this
+		// padding to erase leftover glyphs).
 		for (let i = firstDiff; i < lines.length; i++) {
-			state.write(lines[i]!);
+			state.write(ansi.padToWidth(lines[i]!, width));
 			state.write("\n");
 		}
 
@@ -333,9 +338,12 @@ let animationIndex = 0;
 export function paintSpinnerLine(): void {
 	const elapsed = requestStartTime ? Date.now() - requestStartTime : 0;
 	const char = ANIMATION_CHARS[animationIndex];
-	process.stdout.write(
-		`\r${ansi.BOLD_MAGENTA}${char} ${ansi.RESET}${ansi.BRIGHT_BLACK}Running for ${formatDuration(elapsed)}${ansi.RESET}    `,
-	);
+	const width = process.stdout.columns || 80;
+	const body = `${ansi.BOLD_MAGENTA}${char} ${ansi.RESET}${ansi.BRIGHT_BLACK}Running for ${formatDuration(elapsed)}${ansi.RESET}`;
+	// Pad to full width so a shorter duration (e.g. "1s" -> "10s" doesn't
+	// shrink, but going from "1m 1s" back is rare) or a stale longer line
+	// above/below doesn't leave trailing glyphs.
+	process.stdout.write(`\r${ansi.padToWidth(body, width)}`);
 }
 
 export function startAnimation(state: State, startTime?: number): void {

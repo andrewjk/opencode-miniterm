@@ -2,7 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import * as ansi from "./ansi";
 import { config } from "./config";
-import { isUserTyping, setUserTyping } from "./input";
+import { clearTodoSummary, isUserTyping, setTodoSummary, setUserTyping } from "./input";
 import { closeLogFile, createLogFile, writeToLog } from "./logs";
 import { startPermission } from "./permission";
 import { startQuestion } from "./question";
@@ -23,6 +23,13 @@ let requestStartTime: number | null = null;
 // echoes it back as a `text` part, which we drop (see processText) because we
 // already rendered it locally as a `# user` line. Cleared on first match.
 let pendingUserEcho: string | null = null;
+
+// Latest todo set, used to drive the "X/Y tasks done" summary above the
+// spinner. `todos` holds the most recent set; `frozenDone` captures the best
+// (max) done count so a completed set stays at "X/X" until a new set arrives
+// or the prompt completes.
+let currentTodos: Todo[] | null = null;
+let frozenDone = 0;
 
 // Token/cost stats from the most recent assistant message, shown in the
 // completion banner after a turn finishes.
@@ -164,6 +171,9 @@ export async function sendPrompt(state: State, message: string): Promise<void> {
 	state.renderedLines = [];
 	state.lastFileAfter = new Map();
 	lastTokenStats = null;
+	currentTodos = null;
+	frozenDone = 0;
+	clearTodoSummary();
 
 	await createLogFile();
 
@@ -564,6 +574,19 @@ async function processTodos(state: State, todos: Todo[]) {
 
 	const todoListText = parts.join("\n");
 	state.accumulatedResponse.push({ key: "todo", title: "files", text: todoListText });
+
+	// Update the "X/Y tasks done" summary shown above the spinner. A new set
+	// (different number of todos) resets the frozen count; otherwise we keep
+	// the max done so a completed set stays at "X/X" until replaced.
+	const total = todos.length;
+	const done = todos.filter((t) => t.status === "completed").length;
+	if (!currentTodos || currentTodos.length !== total) {
+		frozenDone = done;
+	} else {
+		frozenDone = Math.max(frozenDone, done);
+	}
+	currentTodos = todos;
+	setTodoSummary(frozenDone, total);
 
 	await writeToLog(`${ansi.stripAnsiCodes(todoListText)}\n\n`);
 

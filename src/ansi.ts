@@ -29,3 +29,14 @@ export const ANSI_CODE_PATTERN = /^\x1b\[[0-9;]*m/;
 export function stripAnsiCodes(str: string): string {
 	return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
+
+// Pad `text` with trailing spaces so its *visible* width equals `width`. This
+// guarantees that when a shorter line is repainted over a longer one, stale
+// trailing characters are overwritten with spaces instead of lingering. ANSI
+// color codes are ignored when measuring. Returns `text` unchanged if it is
+// already at or past `width`.
+export function padToWidth(text: string, width: number): string {
+	const visible = stripAnsiCodes(text).length;
+	const pad = width - visible;
+	return pad > 0 ? text + " ".repeat(pad) : text;
+}

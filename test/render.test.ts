@@ -1,6 +1,6 @@
-import { gfm, transform, consoleRenderers } from "allmark";
+import { consoleRenderers, gfm, transform } from "allmark";
 import { stripANSI } from "bun";
-import { describe, expect, it, vi, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "bun:test";
 import * as ansi from "../src/ansi";
 import { render, wrapText } from "../src/render";
 import type { State } from "../src/types";
@@ -18,13 +18,18 @@ describe("render", () => {
 		...overrides,
 	});
 
+	const originalColumns = process.stdout.columns;
+
 	beforeEach(() => {
 		// Force console width to 80 for consistent test output
 		Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
 	});
 
 	afterEach(() => {
-		delete process.stdout.columns;
+		Object.defineProperty(process.stdout, "columns", {
+			value: originalColumns,
+			configurable: true,
+		});
 	});
 
 	describe("clearRenderedLines", () => {
@@ -159,9 +164,7 @@ describe("render", () => {
 			expect(output).toContain(
 				`${ansi.BRIGHT_BLACK}  range cooktop, while bakeware is used in an oven. Some utensils are considered${ansi.RESET}`,
 			);
-			expect(output).toContain(
-				`${ansi.BRIGHT_BLACK}  both cookware and bakeware.${ansi.RESET}`,
-			);
+			expect(output).toContain(`${ansi.BRIGHT_BLACK}  both cookware and bakeware.${ansi.RESET}`);
 			expect(output).not.toContain("first");
 		});
 	});
@@ -210,7 +213,10 @@ describe("render", () => {
 
 			render(state);
 
-			const output = stripANSI(write.mock.calls.map((c) => c[0]).join("")).replaceAll("  ", "");
+			const output = stripANSI(write.mock.calls.map((c) => c[0]).join(""))
+				.split("\n")
+				.map((l) => l.trim())
+				.join("\n");
 			expect(output).toContain("foo\nbar\n\n💭 ok");
 			expect(output).toContain("stuff\n\nbaz");
 		});
@@ -312,6 +318,52 @@ describe("render", () => {
 			expect(output).not.toContain(`分析中`);
 			expect(output).toContain(`bash: npm test`);
 			expect(output).toContain(`💬 Test results: 5 passed`);
+		});
+	});
+
+	describe("line padding", () => {
+		it("should pad each output line to the full terminal width", () => {
+			Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+			const write = vi.fn();
+			const state = createMockState({
+				accumulatedResponse: [{ key: "xxx", title: "response", text: "hi" }],
+				write,
+			});
+
+			render(state);
+
+			// Find the write call that contains the visible content (it is
+			// written separately from the "\n"). It must be padded to 80
+			// visible columns so stale trailing glyphs get overwritten.
+			const contentCall = write.mock.calls.map((c) => c[0]).find((c) => c.includes("hi"));
+			expect(contentCall).toBeDefined();
+			expect(stripANSI(contentCall!).length).toBe(80);
+			expect(contentCall).toContain("hi");
+		});
+
+		it("should pad empty lines too", () => {
+			Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+			const write = vi.fn();
+			const state = createMockState({
+				accumulatedResponse: [{ key: "xxx", title: "response", text: "a\n\nb" }],
+				write,
+			});
+
+			render(state);
+
+			// An empty rendered line ("  ") should be padded to full width.
+			const emptyPadded = write.mock.calls
+				.map((c) => c[0])
+				.some((c) => stripANSI(c).length === 80 && stripANSI(c).trim() === "");
+			expect(emptyPadded).toBe(true);
+		});
+
+		it("padToWidth ignores ANSI codes and leaves full-width lines untouched", () => {
+			expect(ansi.padToWidth("abc", 6)).toBe("abc   ");
+			expect(ansi.padToWidth("abc", 3)).toBe("abc");
+			expect(ansi.padToWidth("abc", 2)).toBe("abc");
+			const colored = `\x1b[31mred\x1b[0m`;
+			expect(ansi.padToWidth(colored, 6)).toBe(`${colored}   `);
 		});
 	});
 });
@@ -506,7 +558,7 @@ const x = "abc";
   │ }
   │
   │ const x = "abc";
-  └─`)
+  └─`);
 		});
 	});
 });
