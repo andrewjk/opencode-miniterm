@@ -525,7 +525,7 @@ async function acceptInput(state: State): Promise<void> {
 	const endCol = endAbsolutePos % consoleWidth;
 	process.stdout.write(ansi.CURSOR_COL(endCol));
 
-	process.stdout.write("\n");
+	process.stdout.write("\n\n");
 
 	resetInputBufferState();
 	userTyping = false;
@@ -542,7 +542,6 @@ async function acceptInput(state: State): Promise<void> {
 
 	try {
 		if (input === "/help") {
-			process.stdout.write("\n");
 			const maxCommandLength = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
 			for (const cmd of SLASH_COMMANDS) {
 				const padding = " ".repeat(maxCommandLength - cmd.name.length + 2);
@@ -560,7 +559,6 @@ async function acceptInput(state: State): Promise<void> {
 				const extra = parts[2]?.trim();
 				for (let command of SLASH_COMMANDS) {
 					if (command.name === commandName) {
-						process.stdout.write("\n");
 						await command.run(state, extra);
 						writePrompt();
 						return;

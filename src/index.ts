@@ -117,7 +117,7 @@ function shutdown() {
 	process.stdout.write(ansi.ENABLE_LINE_WRAP);
 	saveConfig();
 	server?.close();
-	console.log(`\n${ansi.BRIGHT_BLACK}Goodbye!${ansi.RESET}`);
+	console.log(`${ansi.BRIGHT_BLACK}Goodbye!${ansi.RESET}`);
 	process.exit(0);
 }
 
