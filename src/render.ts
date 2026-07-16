@@ -77,6 +77,8 @@ export function render(state: State, details = false): void {
 		} else if (part.title === "todo") {
 			// Show the whole todo list
 			output += part.text + "\n\n";
+		} else if (part.title === "subtask") {
+			output += part.text + "\n\n";
 		}
 
 		lastPartWasTool = part.title === "tool";

@@ -2,7 +2,14 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import * as ansi from "./ansi";
 import { config } from "./config";
-import { clearTodoSummary, isUserTyping, setTodoSummary, setUserTyping } from "./input";
+import {
+	clearActiveSubagents,
+	clearTodoSummary,
+	isUserTyping,
+	setActiveSubagents,
+	setTodoSummary,
+	setUserTyping,
+} from "./input";
 import { closeLogFile, createLogFile, writeToLog } from "./logs";
 import { startPermission } from "./permission";
 import { startQuestion } from "./question";
@@ -31,6 +38,16 @@ let pendingUserEcho: string | null = null;
 let currentTodos: Todo[] | null = null;
 let frozenDone = 0;
 
+// Subagents dispatched during the active turn. Each `subtask` part marks a
+// subagent invocation (agent name + description); there is no explicit "ended"
+// event, so the list is cleared when the turn goes idle or a new prompt starts.
+interface ActiveSubagent {
+	id: string;
+	agent: string;
+	description: string;
+}
+let activeSubagents: ActiveSubagent[] = [];
+
 // Token/cost stats from the most recent assistant message, shown in the
 // completion banner after a turn finishes.
 interface TokenStats {
@@ -47,7 +64,9 @@ let lastTokenStats: TokenStats | null = null;
 // token percentage. Resolved lazily from the providers config and cached.
 let cachedContextLimit: number | null = null;
 
-async function resolveContextLimit(client: ReturnType<typeof createOpencodeClient>): Promise<number | null> {
+async function resolveContextLimit(
+	client: ReturnType<typeof createOpencodeClient>,
+): Promise<number | null> {
 	if (cachedContextLimit !== null) return cachedContextLimit;
 	try {
 		const result = await client.config.providers();
@@ -86,6 +105,8 @@ export async function cancelRequest(state: State): Promise<void> {
 	}
 	requestActive = false;
 	requestStartTime = null;
+	activeSubagents = [];
+	clearActiveSubagents();
 	await closeLogFile();
 }
 
@@ -173,7 +194,9 @@ export async function sendPrompt(state: State, message: string): Promise<void> {
 	lastTokenStats = null;
 	currentTodos = null;
 	frozenDone = 0;
+	activeSubagents = [];
 	clearTodoSummary();
+	clearActiveSubagents();
 
 	await createLogFile();
 
@@ -285,10 +308,21 @@ async function processEvent(state: State, event: Event): Promise<void> {
 			const isIdle =
 				event.type === "session.idle" ||
 				(event.type === "session.status" && event.properties.status.type === "idle");
-			if (isIdle && requestActive) {
-				const duration = requestStartTime ? Date.now() - requestStartTime : null;
+		if (isIdle && requestActive) {
+			// A subagent (task tool) finishing can surface a transient
+			// session.idle before the parent turn is truly done. Don't tear down
+			// the request — and bring back the spinner — while subagents are still
+			// active; wait for the real turn-end idle instead.
+			if (activeSubagents.length > 0) {
+				startAnimation(state, requestStartTime ?? undefined);
+				render(state);
+				break;
+			}
+			const duration = requestStartTime ? Date.now() - requestStartTime : null;
 				requestActive = false;
 				requestStartTime = null;
+				activeSubagents = [];
+				clearActiveSubagents();
 				stopAnimation();
 				process.stdout.write(ansi.CURSOR_SHOW);
 				if (retryInterval) {
@@ -311,8 +345,7 @@ async function processEvent(state: State, event: Event): Promise<void> {
 						console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}`);
 
 						if (lastTokenStats) {
-							const cachedTotal =
-								lastTokenStats.cacheRead + lastTokenStats.cacheWrite;
+							const cachedTotal = lastTokenStats.cacheRead + lastTokenStats.cacheWrite;
 							const contextLimit = await resolveContextLimit(state.client);
 
 							const parts: string[] = [];
@@ -324,9 +357,7 @@ async function processEvent(state: State, event: Event): Promise<void> {
 								parts.push(`${pct}%`);
 							}
 							parts.push(`$${lastTokenStats.cost.toFixed(4)}`);
-							console.log(
-								`  ${ansi.BRIGHT_BLACK}${parts.join(" · ")}${ansi.RESET}`,
-							);
+							console.log(`  ${ansi.BRIGHT_BLACK}${parts.join(" · ")}${ansi.RESET}`);
 						}
 
 						console.log(`  ${ansi.BRIGHT_BLACK}${process.cwd()}${ansi.RESET}\n`);
@@ -498,6 +529,11 @@ async function processToolUse(state: State, part: Part) {
 		return;
 	}
 
+	if (toolName === "task") {
+		await processTaskSubagent(state, part);
+		return;
+	}
+
 	const toolInput =
 		toolPart.state.input["description"] ||
 		toolPart.state.input["filePath"] ||
@@ -518,6 +554,79 @@ async function processToolUse(state: State, part: Part) {
 	await writeToLog(`$ ${cleanToolText}\n\n`);
 
 	render(state);
+}
+
+async function processTaskSubagent(state: State, part: Part) {
+	const toolPart = part as ToolPart;
+	const st = toolPart.state as Record<string, any>;
+	const status = st["status"] as string;
+
+	// The initial "pending" update carries an empty input; wait for "running"
+	// where subagent_type / description / title become available.
+	if (status === "pending") return;
+
+	const input = (st["input"] || {}) as Record<string, any>;
+	const agent: string = input["subagent_type"] || "subagent";
+	const description: string = st["title"] || input["description"] || "";
+
+	if (status === "running") {
+		upsertActiveSubagent(part.id, agent, description);
+		const text = `🤖 ${ansi.CYAN}${agent}${ansi.RESET} ${ansi.BRIGHT_BLACK}— ${description}${ansi.RESET}`;
+		upsertSubagentPart(state, part.id, text);
+		await writeToLog(`Subagent ${agent}: ${ansi.stripAnsiCodes(description)}\n\n`);
+		render(state);
+		return;
+	}
+
+	// completed or error
+	removeActiveSubagent(part.id);
+
+	const time = st["time"] || {};
+	const elapsed =
+		typeof time["start"] === "number" && typeof time["end"] === "number"
+			? time["end"] - time["start"]
+			: null;
+	const label = status === "error" ? "errored" : "done";
+	const tail =
+		elapsed !== null
+			? ` ${ansi.BRIGHT_BLACK}(${label} in ${formatDuration(elapsed, true)})${ansi.RESET}`
+			: "";
+	const text = `🤖 ${ansi.CYAN}${agent}${ansi.RESET} ${ansi.BRIGHT_BLACK}— ${description}${tail}${ansi.RESET}`;
+	upsertSubagentPart(state, part.id, text);
+
+	if (status === "completed" && typeof st["output"] === "string" && st["output"]) {
+		await writeToLog(`Subagent ${agent} result:\n\n${st["output"]}\n\n`);
+	} else {
+		await writeToLog(`Subagent ${agent}: ${ansi.stripAnsiCodes(description)}\n\n`);
+	}
+
+	render(state);
+}
+
+function upsertSubagentPart(state: State, key: string, text: string) {
+	let existing = findLastPart(state, key);
+	if (!existing) {
+		existing = { key, title: "subtask", text };
+		state.accumulatedResponse.push(existing);
+	} else {
+		existing.text = text;
+	}
+}
+
+function upsertActiveSubagent(id: string, agent: string, description: string) {
+	const idx = activeSubagents.findIndex((s) => s.id === id);
+	if (idx >= 0) {
+		activeSubagents[idx]!.agent = agent;
+		activeSubagents[idx]!.description = description;
+	} else {
+		activeSubagents.push({ id, agent, description });
+	}
+	setActiveSubagents(activeSubagents);
+}
+
+function removeActiveSubagent(id: string) {
+	activeSubagents = activeSubagents.filter((s) => s.id !== id);
+	setActiveSubagents(activeSubagents);
 }
 
 function processDelta(state: State, partID: string, delta: string) {
