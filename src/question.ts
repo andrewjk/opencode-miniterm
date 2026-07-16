@@ -1,8 +1,8 @@
 import type { Key } from "node:readline";
 import * as ansi from "./ansi";
 import { config } from "./config";
-import { setIsRequestActive } from "./input";
 import { stopAnimation, writePrompt } from "./render";
+import { setRequestActive } from "./server";
 import type { State } from "./types";
 
 interface QuestionEvent {
@@ -59,7 +59,7 @@ export function startQuestion(event: QuestionEvent, state: State): QuestionState
 	state.client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
 	stopAnimation();
 	process.stdout.write(ansi.CURSOR_SHOW);
-	setIsRequestActive(false);
+	setRequestActive(false);
 
 	currentState = state;
 	questionState = {

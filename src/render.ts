@@ -1,7 +1,8 @@
 import type { OpencodeClient } from "@opencode-ai/sdk";
-import { gfm, transform, consoleRenderers } from "allmark";
+import { consoleRenderers, gfm, transform } from "allmark";
 import * as ansi from "./ansi";
 import { config } from "./config";
+import { afterOutputPaint, navigateToPromptRow } from "./input";
 import type { State } from "./types";
 import { formatDuration } from "./utils";
 
@@ -45,7 +46,9 @@ export function render(state: State, details = false): void {
 
 		if (part.title === "thinking") {
 			const lineWidth = (process.stdout.columns || 80) - 2;
-			let partText = ansi.stripAnsiCodes(transform(part.text.trimStart(), gfm, consoleRenderers, { lineWidth }).trimEnd());
+			let partText = ansi.stripAnsiCodes(
+				transform(part.text.trimStart(), gfm, consoleRenderers, { lineWidth }).trimEnd(),
+			);
 
 			// Show max 10 thinking lines
 			partText = details ? partText : lastThinkingLines(partText);
@@ -56,8 +59,12 @@ export function render(state: State, details = false): void {
 		} else if (part.title === "response") {
 			// Show all response lines
 			const lineWidth = (process.stdout.columns || 80) - 2;
-			let partText = transform(part.text.trimStart(), gfm, consoleRenderers, { lineWidth }).trimEnd();
+			let partText = transform(part.text.trimStart(), gfm, consoleRenderers, {
+				lineWidth,
+			}).trimEnd();
 			output += `💬 ${partText}\n\n`;
+		} else if (part.title === "user") {
+			output += `${ansi.BOLD_MAGENTA}# ${ansi.RESET}${part.text}\n\n`;
 		} else if (part.title === "tool") {
 			// TODO: Show max 10 tool/file lines?
 			if (lastPartWasTool && output.endsWith("\n\n")) {
@@ -78,6 +85,10 @@ export function render(state: State, details = false): void {
 	if (output) {
 		const lines = wrapText(output, process.stdout.columns || 80);
 
+		// Move cursor to the output region bottom (just below the last rendered
+		// line), accounting for any input rows currently drawn below it.
+		navigateToPromptRow();
+
 		// Clear lines that have changed
 		let firstDiff = state.renderedLines.length;
 		for (let i = 0; i < Math.max(state.renderedLines.length, lines.length); i++) {
@@ -97,8 +108,21 @@ export function render(state: State, details = false): void {
 
 		state.renderedLines = lines;
 	} else if (state.renderedLines.length > 0) {
+		navigateToPromptRow();
 		clearRenderedLines(state, state.renderedLines.length);
 		state.renderedLines = [];
+	} else {
+		// Nothing to draw, but still reposition to the live-area top so the
+		// spinner/input repaint (afterOutputPaint) lands on the right row
+		// instead of stacking on top of previously painted lines.
+		navigateToPromptRow();
+	}
+
+	// Re-establish the input line below the freshly rendered output (or reset
+	// input tracking so the next keystroke renders cleanly). Skipped for the
+	// one-off details view, which has its own prompt lifecycle.
+	if (!details) {
+		afterOutputPaint();
 	}
 }
 
@@ -193,7 +217,7 @@ export function wrapText(text: string, width: number): string[] {
 			visibleLength = indentLength + wordVisibleLength;
 		} else {
 			const wordWidth = width - indentLength;
-			for (let w = 0; w < word.length; ) {
+			for (let w = 0; w < word.length;) {
 				let segment = "";
 				let segmentVisible = 0;
 
@@ -294,24 +318,35 @@ export function writePrompt(): void {
 	process.stdout.write(`${ansi.BOLD_MAGENTA}# ${ansi.RESET}`);
 }
 
+// Write just the prompt glyph ("# ") without touching the animation loop or
+// cursor visibility. Used while repainting the input region, where the spinner
+// must keep running and the caller owns cursor show/hide.
+export function writePromptMarker(): void {
+	process.stdout.write(`${ansi.BOLD_MAGENTA}# ${ansi.RESET}`);
+}
+
 const ANIMATION_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇"];
 let animationInterval: ReturnType<typeof setInterval> | null = null;
 let requestStartTime: number | null = null;
+let animationIndex = 0;
 
-export function startAnimation(startTime?: number): void {
+export function paintSpinnerLine(): void {
+	const elapsed = requestStartTime ? Date.now() - requestStartTime : 0;
+	const char = ANIMATION_CHARS[animationIndex];
+	process.stdout.write(
+		`\r${ansi.BOLD_MAGENTA}${char} ${ansi.RESET}${ansi.BRIGHT_BLACK}Running for ${formatDuration(elapsed)}${ansi.RESET}    `,
+	);
+}
+
+export function startAnimation(state: State, startTime?: number): void {
 	if (animationInterval) return;
 
 	requestStartTime = startTime || Date.now();
+	animationIndex = 0;
 
-	let index = 0;
 	animationInterval = setInterval(() => {
-		const elapsed = Date.now() - requestStartTime!;
-		const elapsedText = formatDuration(elapsed);
-
-		process.stdout.write(
-			`\r${ansi.BOLD_MAGENTA}${ANIMATION_CHARS[index]} ${ansi.RESET}${ansi.BRIGHT_BLACK}Running for ${elapsedText}${ansi.RESET}    `,
-		);
-		index = (index + 1) % ANIMATION_CHARS.length;
+		animationIndex = (animationIndex + 1) % ANIMATION_CHARS.length;
+		render(state);
 	}, 100);
 }
 
@@ -319,8 +354,24 @@ export function stopAnimation(): void {
 	if (animationInterval) {
 		clearInterval(animationInterval);
 		animationInterval = null;
+		process.stdout.write(`\r${ansi.CLEAR_LINE}`);
+	}
+}
+
+// Temporarily stop the spinner (e.g. while the user types an interjection)
+// without resetting the elapsed-time origin.
+export function pauseAnimation(): void {
+	if (animationInterval) {
+		clearInterval(animationInterval);
+		animationInterval = null;
 	}
 	process.stdout.write(`\r${ansi.CLEAR_LINE}`);
+}
+
+// Restart the spinner, preserving the original start time if one is set.
+export function resumeAnimation(state: State): void {
+	if (animationInterval) return;
+	startAnimation(state, requestStartTime ?? undefined);
 }
 
 export async function getActiveDisplay(client: OpencodeClient): Promise<string> {

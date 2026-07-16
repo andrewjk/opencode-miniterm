@@ -2,10 +2,11 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import * as ansi from "./ansi";
 import { config } from "./config";
+import { isUserTyping, setUserTyping } from "./input";
 import { closeLogFile, createLogFile, writeToLog } from "./logs";
 import { startPermission } from "./permission";
 import { startQuestion } from "./question";
-import { render, setTerminalTitle, stopAnimation, writePrompt } from "./render";
+import { render, setTerminalTitle, startAnimation, stopAnimation, writePrompt } from "./render";
 import type { State } from "./types";
 import { formatDuration } from "./utils";
 
@@ -15,6 +16,36 @@ const AUTH_PASSWORD = process.env.OPENCODE_SERVER_PASSWORD || "";
 
 let processing = true;
 let retryInterval: ReturnType<typeof setInterval> | null = null;
+let requestActive = false;
+let requestStartTime: number | null = null;
+
+// Text of a user message injected mid-turn via injectMessage(). The server
+// echoes it back as a `text` part, which we drop (see processText) because we
+// already rendered it locally as a `# user` line. Cleared on first match.
+let pendingUserEcho: string | null = null;
+
+export function isRequestActive(): boolean {
+	return requestActive;
+}
+
+export function setRequestActive(value: boolean): void {
+	requestActive = value;
+}
+
+export function getRequestStartTime(): number | null {
+	return requestStartTime;
+}
+
+// Abort the running request and tear down per-request state. Used when the user
+// cancels (Escape) or when a question/permission interrupts the turn.
+export async function cancelRequest(state: State): Promise<void> {
+	if (state.sessionID) {
+		state.client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
+	}
+	requestActive = false;
+	requestStartTime = null;
+	await closeLogFile();
+}
 
 export function createClient(cwd: string): ReturnType<typeof createOpencodeClient> {
 	return createOpencodeClient({
@@ -87,50 +118,71 @@ export async function startEventListener(state: State): Promise<void> {
 	}
 }
 
-export async function sendMessage(state: State, message: string) {
+// Start a new turn (idle -> busy). Non-blocking: completion is driven by the
+// `session.idle` event in processEvent().
+export async function sendPrompt(state: State, message: string): Promise<void> {
 	processing = false;
+	requestActive = true;
+	requestStartTime = Date.now();
 	state.accumulatedResponse = [];
 	state.allEvents = [];
 	state.renderedLines = [];
+	state.lastFileAfter = new Map();
 
 	await createLogFile();
 
 	await writeToLog(`User: ${message}\n\n`);
 
-	const requestStartTime = Date.now();
+	startAnimation(state, requestStartTime);
 
-	try {
-		const result = await state.client.session.prompt({
-			path: { id: state.sessionID },
-			body: {
-				model: {
-					providerID: config.providerID,
-					modelID: config.modelID,
-				},
-				parts: [{ type: "text", text: message }],
+	const result = await state.client.session.promptAsync({
+		path: { id: state.sessionID },
+		body: {
+			model: {
+				providerID: config.providerID,
+				modelID: config.modelID,
 			},
-		});
+			parts: [{ type: "text", text: message }],
+		},
+	});
 
-		if (result.error) {
-			throw new Error(
-				`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
-			);
-		}
-
-		// Play a chime when request is completed
-		process.stdout.write("\x07");
-
+	if (result.error) {
 		stopAnimation();
-
-		const duration = Date.now() - requestStartTime;
-		const durationText = formatDuration(duration, true);
-		console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
-
-		writePrompt();
-	} catch (error: any) {
-		throw error;
-	} finally {
+		requestActive = false;
+		requestStartTime = null;
 		await closeLogFile();
+		throw new Error(
+			`Failed to send message (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
+	}
+}
+
+// Inject a user message into the currently running turn without starting a new
+// request. The server weaves it into the active turn at the next step boundary.
+export async function injectMessage(state: State, message: string): Promise<void> {
+	await writeToLog(`User (interjected): ${message}\n\n`);
+
+	// The server will echo the injected user message back as a `text` part. Since
+	// we're mid-turn (`processing` is already true) processText() would render it
+	// as a 💬 response. We echo it ourselves in the caller (as a `# user` line)
+	// and drop the server's echo here to avoid a duplicate.
+	pendingUserEcho = message;
+
+	const result = await state.client.session.promptAsync({
+		path: { id: state.sessionID },
+		body: {
+			model: {
+				providerID: config.providerID,
+				modelID: config.modelID,
+			},
+			parts: [{ type: "text", text: message }],
+		},
+	});
+
+	if (result.error) {
+		throw new Error(
+			`Failed to inject message (${result.response.status}): ${JSON.stringify(result.error)}`,
+		);
 	}
 }
 
@@ -183,19 +235,35 @@ async function processEvent(state: State, event: Event): Promise<void> {
 		}
 
 		case "session.idle":
-		case "session.status":
-			if (event.type === "session.status" && event.properties.status.type === "idle") {
+		case "session.status": {
+			const isIdle =
+				event.type === "session.idle" ||
+				(event.type === "session.status" && event.properties.status.type === "idle");
+			if (isIdle && requestActive) {
+				const duration = requestStartTime ? Date.now() - requestStartTime : null;
+				requestActive = false;
+				requestStartTime = null;
 				stopAnimation();
-				// TODO: isRequestActive = false;
 				process.stdout.write(ansi.CURSOR_SHOW);
 				if (retryInterval) {
 					clearInterval(retryInterval);
 					retryInterval = null;
 				}
+				await closeLogFile();
 				if (initText) {
-					sendMessage(state, initText)
+					const pending = initText;
 					initText = "";
+					await sendPrompt(state, pending);
+				} else if (isUserTyping()) {
+					// User was composing an interjection when the turn finished on its
+					// own; keep their text as the next prompt and skip the banner.
+					setUserTyping(false);
 				} else {
+					if (duration != null) {
+						process.stdout.write("\x07");
+						const durationText = formatDuration(duration, true);
+						console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
+					}
 					writePrompt();
 				}
 			}
@@ -232,6 +300,7 @@ async function processEvent(state: State, event: Event): Promise<void> {
 				}
 			}
 			break;
+		}
 
 		case "session.updated": {
 			const session = event.properties.info;
@@ -316,15 +385,22 @@ async function processReasoning(state: State, part: Part) {
 }
 
 async function processText(state: State, part: Part) {
-	let responsePart = findLastPart(state, part.id);
-	if (!responsePart) {
-		responsePart = { key: part.id, title: "response", text: (part as any).text || "" };
-		state.accumulatedResponse.push(responsePart);
-	} else {
-		responsePart.text = (part as any).text || "";
+	const text = (part as any).text || "";
+
+	// Drop the server's echo of an injected user message (already shown locally).
+	if (pendingUserEcho !== null && text.trim() === pendingUserEcho.trim()) {
+		pendingUserEcho = null;
+		return;
 	}
 
-	const text = (part as any).text || "";
+	let responsePart = findLastPart(state, part.id);
+	if (!responsePart) {
+		responsePart = { key: part.id, title: "response", text };
+		state.accumulatedResponse.push(responsePart);
+	} else {
+		responsePart.text = text;
+	}
+
 	const cleanText = ansi.stripAnsiCodes(text.trimStart());
 	await writeToLog(`Response:\n\n${cleanText}\n\n`);
 

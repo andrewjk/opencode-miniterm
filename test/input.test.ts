@@ -11,7 +11,7 @@ describe("renderLine", () => {
 	beforeEach(() => {
 		_resetInputState();
 		writeSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
-		writePromptSpy = spyOn(render, "writePrompt").mockImplementation(() => {});
+		writePromptSpy = spyOn(render, "writePromptMarker").mockImplementation(() => {});
 		// Set a reasonable console width for testing
 		Object.defineProperty(process.stdout, "columns", {
 			value: 80,

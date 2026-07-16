@@ -87,8 +87,18 @@ async function main() {
 		}
 		process.stdout.write(ansi.DISABLE_LINE_WRAP);
 
-		process.stdin.on("keypress", async (str, key) => {
-			handleKeyPress(state, str, key);
+		// Serialize key handling so async handlers (e.g. sending a message) don't
+		// race with subsequent keypresses.
+		let keyQueue = Promise.resolve();
+		process.stdin.on("keypress", (str, key) => {
+			keyQueue = keyQueue
+				.then(() => handleKeyPress(state, str as string, key))
+				.catch((error) => {
+					console.error(
+						`\n${ansi.RED}Keypress handler error:${ansi.RESET}`,
+						error instanceof Error ? error.message : String(error),
+					);
+				});
 		});
 
 		writePrompt();

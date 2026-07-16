@@ -20,8 +20,15 @@ import undoCommand from "./commands/undo";
 import { getLogDir, isLoggingEnabled } from "./logs";
 import { getPermissionState, handlePermissionKeyPress } from "./permission";
 import { getQuestionState, handleQuestionKeyPress } from "./question";
-import { startAnimation, stopAnimation, writePrompt } from "./render";
-import { sendMessage } from "./server";
+import {
+	paintSpinnerLine,
+	render,
+	resumeAnimation,
+	stopAnimation,
+	writePrompt,
+	writePromptMarker,
+} from "./render";
+import { cancelRequest, injectMessage, isRequestActive, sendPrompt } from "./server";
 import type { State } from "./types";
 
 const SLASH_COMMANDS = [
@@ -52,12 +59,123 @@ let lastSpaceTime = 0;
 let lastKeyPressTime = 0;
 let rapidKeyPressCount = 0;
 let currentInputBuffer: string | null = null;
-let isRequestActive = false;
+let userTyping = false;
+
+export function isUserTyping(): boolean {
+	return userTyping;
+}
+
+export function setUserTyping(value: boolean): void {
+	userTyping = value;
+}
 
 let oldInputBuffer = "";
 let oldWrappedRows = 0;
 let oldCursorRow = 0;
+// Whether an input line is currently drawn in the live area, and whether a
+// spinner header row sits above it. Together these describe the live-area
+// layout so navigateToPromptRow()/painting can account for both rows.
+let oldInputDrawn = false;
+let oldHeaderRows = 0;
+
+// Move the cursor to the top of the live area (the row directly below the
+// rendered output), column 0. The cursor is assumed to be somewhere within the
+// live area; we move up by its row offset within that area.
+export function navigateToPromptRow(): void {
+	process.stdout.write(ansi.CURSOR_HOME);
+	const liveRow = oldInputDrawn ? oldHeaderRows + oldCursorRow : 0;
+	if (liveRow > 0) {
+		process.stdout.write(ansi.CURSOR_UP(liveRow));
+	}
+}
+
+// Fully repaint the live area (the region below the rendered output). The
+// cursor must already be at the live-area top. The live area is one of:
+//   - spinner only        (request active, not typing)
+//   - spinner + input     (typing during a request)
+//   - input only          (idle)
+function paintLiveAreaFull(): void {
+	const consoleWidth = process.stdout.columns || 80;
+
+	process.stdout.write(ansi.CURSOR_HOME);
+	process.stdout.write(ansi.CLEAR_FROM_CURSOR);
+
+	const wantSpinner = isRequestActive();
+	const wantInput = userTyping || !isRequestActive();
+
+	let headerRows = 0;
+	if (wantSpinner) {
+		paintSpinnerLine();
+		headerRows = 1;
+	}
+
+	if (wantInput) {
+		process.stdout.write(ansi.CURSOR_SHOW);
+		if (headerRows > 0) {
+			process.stdout.write("\n");
+		}
+		writePromptMarker();
+		let col = 2;
+		let wrappedRows = 0;
+		for (let i = 0; i < inputBuffer.length; i++) {
+			if (col >= consoleWidth) {
+				process.stdout.write("\n");
+				col = 0;
+				wrappedRows++;
+			}
+			process.stdout.write(inputBuffer[i]!);
+			col++;
+		}
+
+		const absolutePos = 2 + cursorPosition;
+		const inputCursorRow = Math.floor(absolutePos / consoleWidth);
+		const inputCursorCol = absolutePos % consoleWidth;
+		const rowsUp = wrappedRows - inputCursorRow;
+		if (rowsUp > 0) {
+			process.stdout.write(ansi.CURSOR_UP(rowsUp));
+		}
+		process.stdout.write(ansi.CURSOR_COL(inputCursorCol));
+
+		oldInputBuffer = inputBuffer;
+		oldWrappedRows = wrappedRows;
+		oldCursorRow = inputCursorRow;
+		oldInputDrawn = true;
+	} else {
+		// Spinner-only: nothing to edit, keep the cursor out of sight.
+		process.stdout.write(ansi.CURSOR_HIDE);
+		oldInputBuffer = "";
+		oldWrappedRows = 0;
+		oldCursorRow = 0;
+		oldInputDrawn = false;
+	}
+	oldHeaderRows = headerRows;
+}
+
+// Called by render() after output has been (re)drawn. Repaints the live area
+// below the output, or resets input tracking so a stale prompt isn't left on
+// screen while streaming.
+export function afterOutputPaint(): void {
+	paintLiveAreaFull();
+}
+
+// On the first keystroke during an active request, transition the live area
+// from spinner-only to spinner + input. Returns true when a full repaint was
+// performed so the caller can skip its incremental paint.
+function beginTypingIfBusy(): boolean {
+	if (isRequestActive() && !userTyping) {
+		userTyping = true;
+		// Cursor sits on the spinner row (live-area top). paintLiveAreaFull will
+		// draw the spinner header and the input line below it.
+		paintLiveAreaFull();
+		return true;
+	}
+	return false;
+}
+
 export function renderLine(): void {
+	if (beginTypingIfBusy()) {
+		return;
+	}
 	const consoleWidth = process.stdout.columns || 80;
 
 	// Move to the start of the line (i.e. the prompt position)
@@ -105,7 +223,7 @@ export function renderLine(): void {
 	// Write the prompt if this is a fresh buffer
 	if (start === 0) {
 		process.stdout.write(ansi.CURSOR_HOME);
-		writePrompt();
+		writePromptMarker();
 		process.stdout.write(ansi.CURSOR_COL(2));
 	}
 
@@ -137,6 +255,8 @@ export function renderLine(): void {
 	oldInputBuffer = inputBuffer;
 	oldWrappedRows = newWrappedRows;
 	oldCursorRow = newCursorRow;
+	oldInputDrawn = true;
+	oldHeaderRows = isRequestActive() ? 1 : 0;
 }
 
 export async function handleKeyPress(state: State, str: string, key: Key) {
@@ -219,15 +339,21 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 			return;
 		}
 		case "escape": {
-			if (isRequestActive) {
-				if (state.sessionID) {
-					state.client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
+			if (isRequestActive()) {
+				if (userTyping) {
+					// Cancel the in-progress interjection and return to the spinner.
+					navigateToPromptRow();
+					resetInputBufferState();
+					userTyping = false;
+					render(state);
+				} else {
+					// Abort the running request.
+					await cancelRequest(state);
+					stopAnimation();
+					process.stdout.write(ansi.CURSOR_SHOW);
+					process.stdout.write(`\r  ${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n\n`);
+					writePrompt();
 				}
-				stopAnimation();
-				process.stdout.write(ansi.CURSOR_SHOW);
-				process.stdout.write(`\r  ${ansi.BRIGHT_BLACK}Cancelled request${ansi.RESET}\n\n`);
-				writePrompt();
-				isRequestActive = false;
 			} else {
 				inputBuffer = "";
 				cursorPosition = 0;
@@ -377,8 +503,15 @@ async function getFileCompletions(pattern: string): Promise<string[]> {
 }
 
 async function acceptInput(state: State): Promise<void> {
-	// Move cursor to end of prompt text before writing newline,
-	// so output appears below the prompt, not below cursor position
+	const input = inputBuffer.trim();
+
+	if (isRequestActive()) {
+		await interject(state, input);
+		return;
+	}
+
+	// Move cursor to end of prompt text before writing newline, so output
+	// appears below the prompt, not below cursor position.
 	const consoleWidth = process.stdout.columns || 80;
 	const endAbsolutePos = 2 + inputBuffer.length;
 	const cursorAbsolutePos = 2 + cursorPosition;
@@ -394,70 +527,118 @@ async function acceptInput(state: State): Promise<void> {
 
 	process.stdout.write("\n");
 
-	const input = inputBuffer.trim();
+	resetInputBufferState();
+	userTyping = false;
 
+	if (!input) {
+		writePrompt();
+		return;
+	}
+
+	if (history[history.length - 1] !== input) {
+		history.push(input);
+	}
+	historyIndex = history.length;
+
+	try {
+		if (input === "/help") {
+			process.stdout.write("\n");
+			const maxCommandLength = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
+			for (const cmd of SLASH_COMMANDS) {
+				const padding = " ".repeat(maxCommandLength - cmd.name.length + 2);
+				console.log(
+					`  ${ansi.BRIGHT_WHITE}${cmd.name}${ansi.RESET}${padding}${ansi.BRIGHT_BLACK}${cmd.description}${ansi.RESET}`,
+				);
+			}
+			console.log();
+			writePrompt();
+			return;
+		} else if (input.startsWith("/")) {
+			const parts = input.match(/(\/[^\s]+)\s*(.*)/)!;
+			if (parts) {
+				const commandName = parts[1];
+				const extra = parts[2]?.trim();
+				for (let command of SLASH_COMMANDS) {
+					if (command.name === commandName) {
+						process.stdout.write("\n");
+						await command.run(state, extra);
+						writePrompt();
+						return;
+					}
+				}
+			}
+			writePrompt();
+			return;
+		}
+
+		process.stdout.write(ansi.CURSOR_HIDE);
+		if (isLoggingEnabled()) {
+			console.log(`📝 ${ansi.BRIGHT_BLACK}Logging to ${getLogDir()}\n${ansi.RESET}`);
+		}
+		await sendPrompt(state, input);
+	} catch (error: any) {
+		stopAnimation();
+		process.stdout.write(ansi.CURSOR_SHOW);
+		console.error("Error:", error.message);
+		writePrompt();
+	}
+}
+
+// Inject `input` into the currently running turn as an interjection (via
+// promptAsync). Commits the typed text as a `# user` echo line, drops back to
+// spinner-only, and hides the cursor while the turn keeps streaming.
+async function interject(state: State, input: string): Promise<void> {
+	// Echo the interjection as a user-prompt line in the managed output so it
+	// survives subsequent streaming redraws (the server's own echo is dropped in
+	// processText via pendingUserEcho).
+	if (input) {
+		state.accumulatedResponse.push({
+			key: `user-${Date.now()}-${Math.random()}`,
+			title: "user",
+			text: input,
+		});
+	}
+
+	// Cursor is within the input region; navigate to the live-area top using the
+	// current (pre-reset) tracking and clear the spinner+input rows before
+	// render() rewrites the region (otherwise short new output lines leave
+	// fragments of the typed text behind).
+	navigateToPromptRow();
+	process.stdout.write(ansi.CLEAR_FROM_CURSOR);
+	resetInputBufferState();
+	userTyping = false;
+	process.stdout.write(ansi.CURSOR_HIDE);
+	render(state);
+
+	if (!input) {
+		if (isRequestActive()) resumeAnimation(state);
+		return;
+	}
+
+	try {
+		await injectMessage(state, input);
+	} catch (error: any) {
+		console.error("Error:", error.message);
+	}
+
+	// The turn may have completed while we were awaiting the inject; only
+	// resume the spinner if the request is still active.
+	if (isRequestActive()) {
+		resumeAnimation(state);
+	}
+}
+
+function resetInputBufferState(): void {
 	oldInputBuffer = "";
 	oldWrappedRows = 0;
 	oldCursorRow = 0;
-
+	oldInputDrawn = false;
+	oldHeaderRows = 0;
 	inputBuffer = "";
 	cursorPosition = 0;
 	completionCycling = false;
 	completions = [];
 	currentInputBuffer = null;
-
-	if (input) {
-		if (history[history.length - 1] !== input) {
-			history.push(input);
-		}
-		historyIndex = history.length;
-		try {
-			if (input === "/help") {
-				process.stdout.write("\n");
-				const maxCommandLength = Math.max(...SLASH_COMMANDS.map((c) => c.name.length));
-				for (const cmd of SLASH_COMMANDS) {
-					const padding = " ".repeat(maxCommandLength - cmd.name.length + 2);
-					console.log(
-						`  ${ansi.BRIGHT_WHITE}${cmd.name}${ansi.RESET}${padding}${ansi.BRIGHT_BLACK}${cmd.description}${ansi.RESET}`,
-					);
-				}
-				console.log();
-				writePrompt();
-				return;
-			} else if (input.startsWith("/")) {
-				const parts = input.match(/(\/[^\s]+)\s*(.*)/)!;
-				if (parts) {
-					const commandName = parts[1];
-					const extra = parts[2]?.trim();
-					for (let command of SLASH_COMMANDS) {
-						if (command.name === commandName) {
-							process.stdout.write("\n");
-							await command.run(state, extra);
-							writePrompt();
-							return;
-						}
-					}
-				}
-				return;
-			}
-
-			isRequestActive = true;
-			process.stdout.write("\n");
-			process.stdout.write(ansi.CURSOR_HIDE);
-			startAnimation();
-			if (isLoggingEnabled()) {
-				console.log(`📝 ${ansi.BRIGHT_BLACK}Logging to ${getLogDir()}\n${ansi.RESET}`);
-			}
-			await sendMessage(state, input);
-			isRequestActive = false;
-		} catch (error: any) {
-			isRequestActive = false;
-			if (error.message !== "Request cancelled") {
-				stopAnimation();
-				console.error("Error:", error.message);
-			}
-		}
-	}
 }
 
 export async function loadSessionHistory(state: State): Promise<string[]> {
@@ -527,12 +708,16 @@ export function _setInputState(state: {
 	oldInputBuffer?: string;
 	oldWrappedRows?: number;
 	oldCursorRow?: number;
+	oldInputDrawn?: boolean;
+	oldHeaderRows?: number;
 }): void {
 	if (state.inputBuffer !== undefined) inputBuffer = state.inputBuffer;
 	if (state.cursorPosition !== undefined) cursorPosition = state.cursorPosition;
 	if (state.oldInputBuffer !== undefined) oldInputBuffer = state.oldInputBuffer;
 	if (state.oldWrappedRows !== undefined) oldWrappedRows = state.oldWrappedRows;
 	if (state.oldCursorRow !== undefined) oldCursorRow = state.oldCursorRow;
+	if (state.oldInputDrawn !== undefined) oldInputDrawn = state.oldInputDrawn;
+	if (state.oldHeaderRows !== undefined) oldHeaderRows = state.oldHeaderRows;
 }
 
 export function _resetInputState(): void {
@@ -541,8 +726,7 @@ export function _resetInputState(): void {
 	oldInputBuffer = "";
 	oldWrappedRows = 0;
 	oldCursorRow = 0;
-}
-
-export function setIsRequestActive(value: boolean): void {
-	isRequestActive = value;
+	oldInputDrawn = false;
+	oldHeaderRows = 0;
+	userTyping = false;
 }

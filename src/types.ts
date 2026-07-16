@@ -23,7 +23,7 @@ export interface State {
 
 interface AccumulatedPart {
 	key: string;
-	title: "thinking" | "response" | "tool" | "files" | "todo";
+	title: "thinking" | "response" | "tool" | "files" | "todo" | "user";
 	text: string;
 	active?: boolean;
 	durationMs?: number;
