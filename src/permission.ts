@@ -1,6 +1,7 @@
 import type { Key } from "node:readline";
 import * as ansi from "./ansi";
 import { resumeAnimation, stopAnimation, writePrompt } from "./render";
+import { drainPendingPrompt } from "./server";
 import type { State } from "./types";
 
 interface PermissionEvent {
@@ -146,10 +147,11 @@ async function submitResponse(optionIndex: number): Promise<void> {
 
 	if (isChild) {
 		// Subagent permission answered: the parent turn is still in flight, so
-		// resume its spinner/output instead of dropping to a fresh prompt.
-		resumeAnimation(stateCopy);
+		// resume its spinner/output instead of dropping to a fresh prompt —
+		// unless another queued prompt takes over the screen.
+		if (!drainPendingPrompt(stateCopy)) resumeAnimation(stateCopy);
 	} else {
-		writePrompt();
+		if (!drainPendingPrompt(stateCopy)) writePrompt();
 	}
 }
 

@@ -103,6 +103,17 @@ export function getRequestStartTime(): number | null {
 	return requestStartTime;
 }
 
+// Pending question/permission prompts that arrived while another prompt
+// overlay was already on screen. Only one overlay can own the screen at a
+// time, so extras are queued (FIFO) and shown one after another as each is
+// answered. Without this, a second prompt event would overwrite the active
+// prompt's state and render the first prompt unanswerable.
+interface PendingPrompt {
+	kind: "question" | "permission";
+	event: any;
+}
+let pendingPrompts: PendingPrompt[] = [];
+
 // True while a question or permission prompt owns the screen. While active,
 // subagent/parent output repaints are suppressed so they don't clobber the
 // prompt overlay; the relevant session is blocked waiting for the answer, and
@@ -114,6 +125,47 @@ function promptOverlayActive(): boolean {
 	return !!p?.active;
 }
 
+// Does `event` describe the prompt that's currently being shown? Used to let a
+// same-ID refresh (e.g. `permission.updated`) pass through instead of queueing
+// behind itself.
+function activePromptMatches(kind: "question" | "permission", event: any): boolean {
+	const id = event?.properties?.id;
+	if (!id) return false;
+	if (kind === "question") return getQuestionState()?.questionID === id;
+	return getPermissionState()?.permissionID === id;
+}
+
+// Route an incoming prompt event: start it now if the screen is free (or it's
+// a refresh of the active prompt), otherwise queue it behind whatever is
+// showing. Dedupes by ID so a chatty `permission.updated` stream doesn't pile
+// up duplicate entries for the same pending permission.
+function dispatchPrompt(state: State, kind: "question" | "permission", event: any): void {
+	if (promptOverlayActive() && !activePromptMatches(kind, event)) {
+		const id = event?.properties?.id;
+		if (id) {
+			pendingPrompts = pendingPrompts.filter(
+				(p) => !(p.kind === kind && p.event?.properties?.id === id),
+			);
+		}
+		pendingPrompts.push({ kind, event });
+		return;
+	}
+	if (activeSubagents.length > 0) render(state);
+	if (kind === "question") startQuestion(event, state);
+	else startPermission(event, state);
+}
+
+// Called by question.ts/permission.ts once they've dismissed their overlay.
+// Shows the next queued prompt if any, returning true when one took over the
+// screen (so the caller knows not to resume the spinner / write a fresh prompt).
+export function drainPendingPrompt(state: State): boolean {
+	const next = pendingPrompts.shift();
+	if (!next) return false;
+	if (next.kind === "question") startQuestion(next.event, state);
+	else startPermission(next.event, state);
+	return true;
+}
+
 // Abort the running request and tear down per-request state. Used when the user
 // cancels (Escape) or when a question/permission interrupts the turn.
 export async function cancelRequest(state: State): Promise<void> {
@@ -123,6 +175,7 @@ export async function cancelRequest(state: State): Promise<void> {
 	requestActive = false;
 	requestStartTime = null;
 	activeSubagents = [];
+	pendingPrompts = [];
 	await closeLogFile();
 }
 
@@ -211,6 +264,7 @@ export async function sendPrompt(state: State, message: string): Promise<void> {
 	currentTodos = null;
 	frozenDone = 0;
 	activeSubagents = [];
+	pendingPrompts = [];
 	clearTodoSummary();
 
 	await createLogFile();
@@ -492,16 +546,12 @@ async function processEvent(state: State, event: Event): Promise<void> {
 		default: {
 			// HACK: Dodgy types
 			if ((event as any).type === "question.asked") {
-				// Commit the current subagent box before the prompt overlay takes
-				// over the screen so the question renders cleanly below it.
-				if (activeSubagents.length > 0) render(state);
-				startQuestion(event as any, state);
+				dispatchPrompt(state, "question", event);
 			} else if (
 				(event as any).type === "permission.asked" ||
 				(event as any).type === "permission.updated"
 			) {
-				if (activeSubagents.length > 0) render(state);
-				startPermission(event as any, state);
+				dispatchPrompt(state, "permission", event);
 			}
 
 			break;

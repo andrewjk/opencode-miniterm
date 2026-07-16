@@ -2,7 +2,7 @@ import type { Key } from "node:readline";
 import * as ansi from "./ansi";
 import { config } from "./config";
 import { resumeAnimation, stopAnimation, writePrompt } from "./render";
-import { setRequestActive } from "./server";
+import { drainPendingPrompt, setRequestActive } from "./server";
 import type { State } from "./types";
 
 interface QuestionEvent {
@@ -211,10 +211,11 @@ async function submitAnswer(answer: string): Promise<void> {
 
 	if (isChild) {
 		// Subagent question answered: the parent turn is still in flight, so
-		// resume its spinner/output instead of dropping to a fresh prompt.
-		resumeAnimation(stateCopy);
+		// resume its spinner/output instead of dropping to a fresh prompt —
+		// unless another queued prompt takes over the screen.
+		if (!drainPendingPrompt(stateCopy)) resumeAnimation(stateCopy);
 	} else {
-		writePrompt();
+		if (!drainPendingPrompt(stateCopy)) writePrompt();
 	}
 }
 
