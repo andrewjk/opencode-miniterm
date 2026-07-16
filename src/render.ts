@@ -6,12 +6,15 @@ import { afterOutputPaint, navigateToPromptRow } from "./input";
 import type { State } from "./types";
 import { formatDuration } from "./utils";
 
-export function render(state: State, details = false): void {
-	let output = "";
+// Max visible activity rows per subagent box (excluding the header and the
+// trailing spacer). Subagent text is rendered exactly like the parent's
+// response parts (markdown + word-wrap); only the most recent rows are kept so
+// the box stays compact while streaming.
+const SUBAGENT_BOX_LINES = 10;
 
-	if (details) {
-		output += "📋 Detailed output from the last run:\n\n";
-	}
+export function render(state: State, details = false): void {
+	const width = process.stdout.columns || 80;
+	const lineWidth = width - 2;
 
 	// Only show the last (i.e. active) thinking part
 	let foundPart = false;
@@ -38,14 +41,31 @@ export function render(state: State, details = false): void {
 		}
 	}
 
+	// Build ordered blocks. Subtask parts (subagent boxes) render as
+	// self-contained, pre-formatted lines that manage their own bar indent and
+	// so bypass the shared word-wrapper. Every other part accumulates into a
+	// text block that goes through wrapText, preserving the original behavior.
+	type Block = { kind: "wrap"; text: string } | { kind: "subtask"; text: string };
+	const blocks: Block[] = [];
+	let buf = details ? "📋 Detailed output from the last run:\n\n" : "";
 	let lastPartWasTool = false;
-	for (let i = 0; i < state.accumulatedResponse.length; i++) {
-		const part = state.accumulatedResponse[i];
+	const flushBuf = () => {
+		if (buf.trim()) blocks.push({ kind: "wrap", text: buf });
+		buf = "";
+	};
+
+	for (const part of state.accumulatedResponse) {
 		if (!part || !part.active) continue;
 		if (!part.text.trim()) continue;
 
+		if (part.title === "subtask") {
+			flushBuf();
+			blocks.push({ kind: "subtask", text: part.text });
+			lastPartWasTool = false;
+			continue;
+		}
+
 		if (part.title === "thinking") {
-			const lineWidth = (process.stdout.columns || 80) - 2;
 			let partText = ansi.stripAnsiCodes(
 				transform(part.text.trimStart(), gfm, consoleRenderers, { lineWidth }).trimEnd(),
 			);
@@ -53,41 +73,45 @@ export function render(state: State, details = false): void {
 			// Show max 10 thinking lines
 			partText = details ? partText : lastThinkingLines(partText);
 
-			output += "<ocmt-thinking>\n";
-			output += `💭 ${partText}\n\n`;
-			output += "</ocmt-thinking>\n";
+			buf += "<ocmt-thinking>\n";
+			buf += `💭 ${partText}\n\n`;
+			buf += "</ocmt-thinking>\n";
 		} else if (part.title === "response") {
 			// Show all response lines
-			const lineWidth = (process.stdout.columns || 80) - 2;
-			let partText = transform(part.text.trimStart(), gfm, consoleRenderers, {
+			const partText = transform(part.text.trimStart(), gfm, consoleRenderers, {
 				lineWidth,
 			}).trimEnd();
-			output += `💬 ${partText}\n\n`;
+			buf += `💬 ${partText}\n\n`;
 		} else if (part.title === "user") {
-			output += `${ansi.BOLD_MAGENTA}# ${ansi.RESET}${part.text}\n\n`;
+			buf += `${ansi.BOLD_MAGENTA}# ${ansi.RESET}${part.text}\n\n`;
 		} else if (part.title === "tool") {
 			// TODO: Show max 10 tool/file lines?
-			if (lastPartWasTool && output.endsWith("\n\n")) {
-				output = output.substring(0, output.length - 1);
+			if (lastPartWasTool && buf.endsWith("\n\n")) {
+				buf = buf.substring(0, buf.length - 1);
 			}
-			output += part.text + "\n\n";
+			buf += part.text + "\n\n";
 		} else if (part.title === "files") {
 			// TODO: Show max 10 tool/file lines?
-			output += part.text + "\n\n";
+			buf += part.text + "\n\n";
 		} else if (part.title === "todo") {
 			// Show the whole todo list
-			output += part.text + "\n\n";
-		} else if (part.title === "subtask") {
-			output += part.text + "\n\n";
+			buf += part.text + "\n\n";
 		}
 
 		lastPartWasTool = part.title === "tool";
 	}
+	flushBuf();
 
-	if (output) {
-		const width = process.stdout.columns || 80;
-		const lines = wrapText(output, width);
+	let lines: string[] = [];
+	for (const block of blocks) {
+		if (block.kind === "wrap") {
+			lines.push(...wrapText(block.text, width));
+		} else {
+			lines.push(...renderSubtaskBoxLines(block.text, width));
+		}
+	}
 
+	if (lines.length > 0) {
 		// Move cursor to the output region bottom (just below the last rendered
 		// line), accounting for any input rows currently drawn below it.
 		navigateToPromptRow();
@@ -131,6 +155,57 @@ export function render(state: State, details = false): void {
 	if (!details) {
 		afterOutputPaint();
 	}
+}
+
+// Render a subagent box. `rawText` is built by server.ts with the convention:
+//   line 0 = agent name
+//   line 1 = description (with optional " (done in …)" / " (errored)" tail)
+//   line 2+ = activity entries delimited by a record separator (\x1E); each
+//     entry is either a subagent text response (prefixed with "💬 ") or a
+//     plain tool line ("$ tool: …"). Text responses are markdown-rendered
+//     exactly like the parent's response parts and word-wrapped (blank lines
+//     inside a response are preserved for block parsing); tool lines are
+//     wrapped verbatim. Entries are concatenated with no blank row between
+//     them, and only the last SUBAGENT_BOX_LINES rows are shown so the box
+//     scrolls as the subagent streams.
+function renderSubtaskBoxLines(rawText: string, width: number): string[] {
+	const all = rawText.split("\n");
+	const agent = all[0] ?? "";
+	const desc = all[1] ?? "";
+	const activityRaw = all.slice(2).join("\n");
+
+	const bar = `${ansi.BRIGHT_BLACK}│${ansi.RESET}`;
+	const header = `  ${ansi.CYAN}🤖 ${agent}${ansi.RESET} ${ansi.BRIGHT_BLACK}— ${desc}${ansi.RESET}`;
+	const out: string[] = [header];
+
+	const contentWidth = Math.max(8, width - 4);
+	const entries = activityRaw.split("\x1E");
+
+	// Render from the newest entry back, stopping once we have more wrapped
+	// rows than we can show — keeps the markdown transform cheap while a
+	// subagent streams.
+	const rows: string[] = [];
+	for (let ei = entries.length - 1; ei >= 0 && rows.length <= SUBAGENT_BOX_LINES; ei--) {
+		const entry = entries[ei]!;
+		if (!entry) continue;
+		const isText = entry.startsWith("💬 ");
+		// Text responses get the same markdown rendering as the parent (the
+		// "💬 " prefix is kept inside the wrap input so the wrapper accounts
+		// for it, mirroring render()'s response handling).
+		const rendered = isText
+			? `💬 ${transform(entry.slice(3), gfm, consoleRenderers, { lineWidth: contentWidth }).trimEnd()}`
+			: entry;
+		const wrapped = wrapText(rendered, contentWidth + 2).map((l) => l.slice(2));
+		rows.unshift(...wrapped);
+	}
+
+	const shown = rows.slice(-SUBAGENT_BOX_LINES);
+	for (const r of shown) {
+		out.push(`  ${bar} ${r}`);
+	}
+	// Trailing spacer so the box is separated from whatever follows.
+	out.push("  ");
+	return out;
 }
 
 function lastThinkingLines(text: string): string {

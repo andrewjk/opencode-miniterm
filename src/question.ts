@@ -1,7 +1,7 @@
 import type { Key } from "node:readline";
 import * as ansi from "./ansi";
 import { config } from "./config";
-import { stopAnimation, writePrompt } from "./render";
+import { resumeAnimation, stopAnimation, writePrompt } from "./render";
 import { setRequestActive } from "./server";
 import type { State } from "./types";
 
@@ -32,6 +32,7 @@ interface QuestionOption {
 interface QuestionState {
 	active: boolean;
 	questionID: string;
+	sessionID: string;
 	messageID: string;
 	callID: string;
 	questions: Question[];
@@ -53,18 +54,26 @@ export function setQuestionState(state: QuestionState | null): void {
 }
 
 export function startQuestion(event: QuestionEvent, state: State): QuestionState {
-	const { questions, id, tool } = event.properties;
+	const { questions, id, tool, sessionID } = event.properties;
+	const isChild = sessionID !== state.sessionID;
 
-	// Abort the current request so we can answer the question
-	state.client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
 	stopAnimation();
 	process.stdout.write(ansi.CURSOR_SHOW);
-	setRequestActive(false);
+
+	// Only the parent's own question aborts/restarts the parent turn. A
+	// subagent (child) question must keep the parent turn intact — the parent
+	// is just waiting on the task tool — so we simply pause the UI and route
+	// the answer to the child session.
+	if (!isChild) {
+		state.client.session.abort({ path: { id: state.sessionID } }).catch(() => {});
+		setRequestActive(false);
+	}
 
 	currentState = state;
 	questionState = {
 		active: true,
 		questionID: id,
+		sessionID,
 		messageID: tool.messageID,
 		callID: tool.callID,
 		questions,
@@ -167,6 +176,8 @@ async function submitAnswer(answer: string): Promise<void> {
 
 	const questions = questionState.questions;
 	const stateCopy = currentState;
+	const sessionID = questionState.sessionID;
+	const isChild = sessionID !== stateCopy.sessionID;
 	const currentQuestion = questions[0];
 
 	clearQuestion();
@@ -181,7 +192,7 @@ async function submitAnswer(answer: string): Promise<void> {
 
 	try {
 		const result = await stateCopy.client.session.prompt({
-			path: { id: stateCopy.sessionID },
+			path: { id: sessionID },
 			body: {
 				model: {
 					providerID: config.providerID,
@@ -198,7 +209,13 @@ async function submitAnswer(answer: string): Promise<void> {
 		console.error(`${ansi.RED}Failed to send answer:${ansi.RESET}`, error);
 	}
 
-	writePrompt();
+	if (isChild) {
+		// Subagent question answered: the parent turn is still in flight, so
+		// resume its spinner/output instead of dropping to a fresh prompt.
+		resumeAnimation(stateCopy);
+	} else {
+		writePrompt();
+	}
 }
 
 export function renderQuestion(): void {

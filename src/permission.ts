@@ -1,6 +1,6 @@
 import type { Key } from "node:readline";
 import * as ansi from "./ansi";
-import { stopAnimation, writePrompt } from "./render";
+import { resumeAnimation, stopAnimation, writePrompt } from "./render";
 import type { State } from "./types";
 
 interface PermissionEvent {
@@ -48,7 +48,9 @@ export function startPermission(event: PermissionEvent, state: State): Permissio
 	currentState = state;
 
 	const props = event.properties;
-	const patterns = props.patterns || (Array.isArray(props.pattern) ? props.pattern : props.pattern ? [props.pattern] : []);
+	const patterns =
+		props.patterns ||
+		(Array.isArray(props.pattern) ? props.pattern : props.pattern ? [props.pattern] : []);
 	const title = props.title || formatPermissionTitle(props.permission, patterns);
 
 	permissionState = {
@@ -116,6 +118,7 @@ async function submitResponse(optionIndex: number): Promise<void> {
 
 	const stateCopy = currentState;
 	const { permissionID, sessionID, selectedIndex } = permissionState;
+	const isChild = sessionID !== stateCopy.sessionID;
 
 	const responses: ("once" | "always" | "reject")[] = ["once", "always", "reject"];
 	const labels = ["Allow once", "Allow always", "Deny"];
@@ -141,7 +144,13 @@ async function submitResponse(optionIndex: number): Promise<void> {
 		console.error(`${ansi.RED}Failed to respond to permission:${ansi.RESET}`, error);
 	}
 
-	writePrompt();
+	if (isChild) {
+		// Subagent permission answered: the parent turn is still in flight, so
+		// resume its spinner/output instead of dropping to a fresh prompt.
+		resumeAnimation(stateCopy);
+	} else {
+		writePrompt();
+	}
 }
 
 export function renderPermission(): void {
@@ -158,7 +167,9 @@ export function renderPermission(): void {
 	}
 
 	if (permissionState.patterns.length > 0) {
-		lines.push(`  ${ansi.BRIGHT_BLACK}Patterns:${ansi.RESET} ${permissionState.patterns.join(", ")}`);
+		lines.push(
+			`  ${ansi.BRIGHT_BLACK}Patterns:${ansi.RESET} ${permissionState.patterns.join(", ")}`,
+		);
 	}
 
 	lines.push("");
@@ -172,9 +183,7 @@ export function renderPermission(): void {
 	options.forEach((option, index) => {
 		const isSelected = index === permissionState!.selectedIndex;
 		const prefix = isSelected ? `${ansi.GREEN}►${ansi.RESET}` : " ";
-		lines.push(
-			`  ${prefix} ${option.label} ${ansi.BRIGHT_BLACK}(${option.key})${ansi.RESET}`,
-		);
+		lines.push(`  ${prefix} ${option.label} ${ansi.BRIGHT_BLACK}(${option.key})${ansi.RESET}`);
 	});
 
 	lines.push("");

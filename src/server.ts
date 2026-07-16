@@ -2,17 +2,10 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import * as ansi from "./ansi";
 import { config } from "./config";
-import {
-	clearActiveSubagents,
-	clearTodoSummary,
-	isUserTyping,
-	setActiveSubagents,
-	setTodoSummary,
-	setUserTyping,
-} from "./input";
+import { clearTodoSummary, isUserTyping, setTodoSummary, setUserTyping } from "./input";
 import { closeLogFile, createLogFile, writeToLog } from "./logs";
-import { startPermission } from "./permission";
-import { startQuestion } from "./question";
+import { getPermissionState, startPermission } from "./permission";
+import { getQuestionState, startQuestion } from "./question";
 import { render, setTerminalTitle, startAnimation, stopAnimation, writePrompt } from "./render";
 import type { State } from "./types";
 import { formatDuration } from "./utils";
@@ -38,15 +31,28 @@ let pendingUserEcho: string | null = null;
 let currentTodos: Todo[] | null = null;
 let frozenDone = 0;
 
-// Subagents dispatched during the active turn. Each `subtask` part marks a
-// subagent invocation (agent name + description); there is no explicit "ended"
-// event, so the list is cleared when the turn goes idle or a new prompt starts.
+// Subagents dispatched during the active turn. Each `task` tool part marks a
+// subagent invocation (agent name + description). Child-session streaming
+// events (text/tool/delta) are routed into the matching subagent's buffer and
+// rendered as a compact box in the output region instead of dumped into the
+// parent's output. The list is cleared when the turn goes idle or a new prompt
+// starts.
+interface SubagentEntry {
+	kind: "text" | "tool";
+	key: string;
+	text: string;
+}
 interface ActiveSubagent {
 	id: string;
 	agent: string;
 	description: string;
+	sessionID: string | null;
+	status: "running" | "completed" | "error";
+	elapsed: number | null;
+	entries: SubagentEntry[];
 }
 let activeSubagents: ActiveSubagent[] = [];
+const SUBAGENT_MAX_ENTRIES = 40;
 
 // Token/cost stats from the most recent assistant message, shown in the
 // completion banner after a turn finishes.
@@ -97,6 +103,17 @@ export function getRequestStartTime(): number | null {
 	return requestStartTime;
 }
 
+// True while a question or permission prompt owns the screen. While active,
+// subagent/parent output repaints are suppressed so they don't clobber the
+// prompt overlay; the relevant session is blocked waiting for the answer, and
+// rendering resumes once the overlay is dismissed.
+function promptOverlayActive(): boolean {
+	const q = getQuestionState();
+	if (q?.active) return true;
+	const p = getPermissionState();
+	return !!p?.active;
+}
+
 // Abort the running request and tear down per-request state. Used when the user
 // cancels (Escape) or when a question/permission interrupts the turn.
 export async function cancelRequest(state: State): Promise<void> {
@@ -106,7 +123,6 @@ export async function cancelRequest(state: State): Promise<void> {
 	requestActive = false;
 	requestStartTime = null;
 	activeSubagents = [];
-	clearActiveSubagents();
 	await closeLogFile();
 }
 
@@ -196,7 +212,6 @@ export async function sendPrompt(state: State, message: string): Promise<void> {
 	frozenDone = 0;
 	activeSubagents = [];
 	clearTodoSummary();
-	clearActiveSubagents();
 
 	await createLogFile();
 
@@ -257,6 +272,15 @@ export async function injectMessage(state: State, message: string): Promise<void
 
 let initText = "";
 
+// The SSE stream multiplexes events from the parent session and all child
+// (subagent) sessions. This returns the session an event belongs to so callers
+// can route child events into the owning subagent's buffer instead of the
+// parent's output.
+function eventSessionID(event: Event): string | undefined {
+	const sid = (event as any).properties?.sessionID;
+	return typeof sid === "string" ? sid : undefined;
+}
+
 async function processEvent(state: State, event: Event): Promise<void> {
 	if (retryInterval && event.type !== "session.status") {
 		clearInterval(retryInterval);
@@ -274,6 +298,17 @@ async function processEvent(state: State, event: Event): Promise<void> {
 				initText = part.text;
 				break;
 			}
+			const sid = eventSessionID(event);
+			if (sid && sid !== state.sessionID) {
+				const sa = activeSubagents.find((s) => s.sessionID === sid);
+				if (sa) {
+					if (part) processSubagentPart(state, sa, part);
+					if (delta !== undefined && part) processSubagentDelta(state, sa, part.id, delta);
+				}
+				// Absorb child events (known or not) so they never pollute the
+				// parent's output region.
+				break;
+			}
 			if (part) {
 				await processPart(state, part);
 			}
@@ -289,6 +324,14 @@ async function processEvent(state: State, event: Event): Promise<void> {
 			const partID = event.properties.partID;
 			// @ts-ignore
 			const delta = event.properties.delta;
+			const sid = eventSessionID(event);
+			if (sid && sid !== state.sessionID) {
+				const sa = activeSubagents.find((s) => s.sessionID === sid);
+				if (sa && partID !== undefined && delta !== undefined) {
+					processSubagentDelta(state, sa, partID, delta);
+				}
+				break;
+			}
 			if (partID !== undefined && delta !== undefined) {
 				processDelta(state, partID, delta);
 			}
@@ -296,6 +339,8 @@ async function processEvent(state: State, event: Event): Promise<void> {
 		}
 
 		case "session.diff": {
+			const diffSid = eventSessionID(event);
+			if (diffSid && diffSid !== state.sessionID) break;
 			const diff = event.properties.diff;
 			if (diff && diff.length > 0) {
 				await processDiff(state, diff);
@@ -305,24 +350,32 @@ async function processEvent(state: State, event: Event): Promise<void> {
 
 		case "session.idle":
 		case "session.status": {
+			const statusSid = eventSessionID(event);
+			// Child (subagent) session lifecycle events are not turn boundaries
+			// for the parent — ignore them entirely.
+			if (statusSid && statusSid !== state.sessionID) {
+				break;
+			}
 			const isIdle =
 				event.type === "session.idle" ||
 				(event.type === "session.status" && event.properties.status.type === "idle");
-		if (isIdle && requestActive) {
-			// A subagent (task tool) finishing can surface a transient
-			// session.idle before the parent turn is truly done. Don't tear down
-			// the request — and bring back the spinner — while subagents are still
-			// active; wait for the real turn-end idle instead.
-			if (activeSubagents.length > 0) {
-				startAnimation(state, requestStartTime ?? undefined);
-				render(state);
-				break;
-			}
-			const duration = requestStartTime ? Date.now() - requestStartTime : null;
+			if (isIdle && requestActive) {
+				// A subagent (task tool) finishing can surface a transient
+				// session.idle before the parent turn is truly done. Don't tear down
+				// the request — and bring back the spinner — while subagents are still
+				// active; wait for the real turn-end idle instead. Skip the repaint
+				// entirely if a question/permission overlay is on screen.
+				if (activeSubagents.length > 0) {
+					if (!promptOverlayActive()) {
+						startAnimation(state, requestStartTime ?? undefined);
+						render(state);
+					}
+					break;
+				}
+				const duration = requestStartTime ? Date.now() - requestStartTime : null;
 				requestActive = false;
 				requestStartTime = null;
 				activeSubagents = [];
-				clearActiveSubagents();
 				stopAnimation();
 				process.stdout.write(ansi.CURSOR_SHOW);
 				if (retryInterval) {
@@ -409,6 +462,8 @@ async function processEvent(state: State, event: Event): Promise<void> {
 		}
 
 		case "message.updated": {
+			const msgSid = eventSessionID(event);
+			if (msgSid && msgSid !== state.sessionID) break;
 			const info = event.properties?.info;
 			if (info && info.role === "assistant" && info.tokens) {
 				lastTokenStats = {
@@ -424,6 +479,8 @@ async function processEvent(state: State, event: Event): Promise<void> {
 		}
 
 		case "todo.updated": {
+			const todoSid = eventSessionID(event);
+			if (todoSid && todoSid !== state.sessionID) break;
 			const todos = event.properties.todos;
 			if (todos) {
 				await processTodos(state, todos);
@@ -435,11 +492,15 @@ async function processEvent(state: State, event: Event): Promise<void> {
 		default: {
 			// HACK: Dodgy types
 			if ((event as any).type === "question.asked") {
+				// Commit the current subagent box before the prompt overlay takes
+				// over the screen so the question renders cleanly below it.
+				if (activeSubagents.length > 0) render(state);
 				startQuestion(event as any, state);
 			} else if (
 				(event as any).type === "permission.asked" ||
 				(event as any).type === "permission.updated"
 			) {
+				if (activeSubagents.length > 0) render(state);
 				startPermission(event as any, state);
 			}
 
@@ -568,39 +629,137 @@ async function processTaskSubagent(state: State, part: Part) {
 	const input = (st["input"] || {}) as Record<string, any>;
 	const agent: string = input["subagent_type"] || "subagent";
 	const description: string = st["title"] || input["description"] || "";
+	const meta = (st["metadata"] || {}) as Record<string, any>;
+	const childSessionID = typeof meta["sessionId"] === "string" ? meta["sessionId"] : null;
 
 	if (status === "running") {
-		upsertActiveSubagent(part.id, agent, description);
-		const text = `🤖 ${ansi.CYAN}${agent}${ansi.RESET} ${ansi.BRIGHT_BLACK}— ${description}${ansi.RESET}`;
-		upsertSubagentPart(state, part.id, text);
+		upsertActiveSubagent(part.id, agent, description, childSessionID);
+		const sa = activeSubagents.find((s) => s.id === part.id);
+		if (sa) syncSubagentBox(state, sa, true);
 		await writeToLog(`Subagent ${agent}: ${ansi.stripAnsiCodes(description)}\n\n`);
-		render(state);
 		return;
 	}
 
 	// completed or error
-	removeActiveSubagent(part.id);
-
 	const time = st["time"] || {};
 	const elapsed =
 		typeof time["start"] === "number" && typeof time["end"] === "number"
 			? time["end"] - time["start"]
 			: null;
-	const label = status === "error" ? "errored" : "done";
-	const tail =
-		elapsed !== null
-			? ` ${ansi.BRIGHT_BLACK}(${label} in ${formatDuration(elapsed, true)})${ansi.RESET}`
-			: "";
-	const text = `🤖 ${ansi.CYAN}${agent}${ansi.RESET} ${ansi.BRIGHT_BLACK}— ${description}${tail}${ansi.RESET}`;
-	upsertSubagentPart(state, part.id, text);
+	const sa = activeSubagents.find((s) => s.id === part.id);
+	if (sa) {
+		sa.status = status === "error" ? "error" : "completed";
+		sa.elapsed = elapsed;
+		// Final box is written into the accumulated part so it persists in the
+		// output region after the subagent leaves the active list.
+		syncSubagentBox(state, sa, true);
+	}
+	removeActiveSubagent(part.id);
 
 	if (status === "completed" && typeof st["output"] === "string" && st["output"]) {
 		await writeToLog(`Subagent ${agent} result:\n\n${st["output"]}\n\n`);
 	} else {
 		await writeToLog(`Subagent ${agent}: ${ansi.stripAnsiCodes(description)}\n\n`);
 	}
+}
 
-	render(state);
+// Handle a streaming part from a subagent's child session: text and tool calls
+// become activity lines in the subagent's box. Reasoning and step markers are
+// ignored to keep the box compact.
+function processSubagentPart(state: State, sa: ActiveSubagent, part: Part): void {
+	if (part.type === "text") {
+		const text = (part as any).text || "";
+		const entry = findSubagentEntry(sa, part.id);
+		if (entry && entry.kind === "text") entry.text = text;
+		else pushSubagentEntry(sa, { kind: "text", key: part.id, text });
+		syncSubagentBox(state, sa, true);
+	} else if (part.type === "tool") {
+		const tp = part as ToolPart;
+		const tool = tp.tool || "unknown";
+		if (tool === "task" || tool === "todowrite" || tool === "question") return;
+		const inp = (tp.state?.input || {}) as Record<string, any>;
+		const detail =
+			inp["description"] ||
+			inp["filePath"] ||
+			inp["path"] ||
+			inp["include"] ||
+			inp["pattern"] ||
+			"...";
+		const line = `$ ${tool}: ${detail}`;
+		const entry = findSubagentEntry(sa, part.id);
+		if (entry) entry.text = line;
+		else pushSubagentEntry(sa, { kind: "tool", key: part.id, text: line });
+		syncSubagentBox(state, sa, true);
+	}
+}
+
+// Streaming text delta for a subagent. Updates the buffer + accumulated part
+// without forcing a redraw — the animation tick (10/s) repaints it smoothly.
+function processSubagentDelta(
+	state: State,
+	sa: ActiveSubagent,
+	partID: string,
+	delta: string,
+): void {
+	const entry = findSubagentEntry(sa, partID);
+	if (entry && entry.kind === "text") {
+		entry.text += delta;
+	} else {
+		pushSubagentEntry(sa, { kind: "text", key: partID, text: delta });
+	}
+	syncSubagentBox(state, sa, false);
+}
+
+// Build the raw text stored in the subtask accumulated part (see the line
+// convention documented in renderSubtaskBoxLines). Text entries keep their
+// full body — including any blank lines, which markdown needs for block
+// parsing — so render.ts can render them exactly like the parent's response
+// parts; tool entries stay as single "$ tool: …" lines. Entries are delimited
+// by a record separator (\x1E) so render.ts can tell entry boundaries apart
+// from the blank lines inside a markdown response.
+function buildSubagentText(sa: ActiveSubagent): string {
+	const out: string[] = [sa.agent];
+	let desc = sa.description;
+	if (sa.status === "completed") {
+		desc += sa.elapsed != null ? ` (done in ${formatDuration(sa.elapsed, true)})` : " (done)";
+	} else if (sa.status === "error") {
+		desc += " (errored)";
+	}
+	out.push(desc);
+
+	const entryTexts: string[] = [];
+	for (const e of sa.entries) {
+		if (e.kind === "text") {
+			const body = e.text.replace(/\r/g, "");
+			if (body.trim()) entryTexts.push(`💬 ${body}`);
+		} else {
+			entryTexts.push(e.text);
+		}
+	}
+	out.push(entryTexts.join("\x1E"));
+	return out.join("\n");
+}
+
+// Write the subagent's current box text into its accumulated part. `paint`
+// controls whether a redraw is triggered immediately (part updates do, since
+// they're infrequent; deltas rely on the animation tick).
+function syncSubagentBox(state: State, sa: ActiveSubagent, paint: boolean): void {
+	upsertSubagentPart(state, sa.id, buildSubagentText(sa));
+	if (paint && !promptOverlayActive()) render(state);
+}
+
+function pushSubagentEntry(sa: ActiveSubagent, entry: SubagentEntry): void {
+	sa.entries.push(entry);
+	if (sa.entries.length > SUBAGENT_MAX_ENTRIES) {
+		sa.entries = sa.entries.slice(-SUBAGENT_MAX_ENTRIES);
+	}
+}
+
+function findSubagentEntry(sa: ActiveSubagent, key: string): SubagentEntry | undefined {
+	for (let i = sa.entries.length - 1; i >= 0; i--) {
+		if (sa.entries[i]!.key === key) return sa.entries[i];
+	}
+	return undefined;
 }
 
 function upsertSubagentPart(state: State, key: string, text: string) {
@@ -613,20 +772,32 @@ function upsertSubagentPart(state: State, key: string, text: string) {
 	}
 }
 
-function upsertActiveSubagent(id: string, agent: string, description: string) {
+function upsertActiveSubagent(
+	id: string,
+	agent: string,
+	description: string,
+	sessionID: string | null,
+) {
 	const idx = activeSubagents.findIndex((s) => s.id === id);
 	if (idx >= 0) {
 		activeSubagents[idx]!.agent = agent;
 		activeSubagents[idx]!.description = description;
+		if (sessionID) activeSubagents[idx]!.sessionID = sessionID;
 	} else {
-		activeSubagents.push({ id, agent, description });
+		activeSubagents.push({
+			id,
+			agent,
+			description,
+			sessionID,
+			status: "running",
+			elapsed: null,
+			entries: [],
+		});
 	}
-	setActiveSubagents(activeSubagents);
 }
 
 function removeActiveSubagent(id: string) {
 	activeSubagents = activeSubagents.filter((s) => s.id !== id);
-	setActiveSubagents(activeSubagents);
 }
 
 function processDelta(state: State, partID: string, delta: string) {
@@ -635,7 +806,7 @@ function processDelta(state: State, partID: string, delta: string) {
 		responsePart.text += delta;
 	}
 
-	render(state);
+	if (!promptOverlayActive()) render(state);
 }
 
 async function processDiff(state: State, diff: FileDiff[]) {

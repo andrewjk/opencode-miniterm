@@ -98,24 +98,6 @@ export function clearTodoSummary(): void {
 	todoSummary = null;
 }
 
-// Subagents dispatched during the active turn. Mirrored from server.ts so the
-// live area can show a list of active agent names. Cleared when the turn goes
-// idle or a new prompt starts.
-interface ActiveSubagent {
-	id: string;
-	agent: string;
-	description: string;
-}
-let activeSubagents: ActiveSubagent[] = [];
-
-export function setActiveSubagents(list: ActiveSubagent[]): void {
-	activeSubagents = list;
-}
-
-export function clearActiveSubagents(): void {
-	activeSubagents = [];
-}
-
 // Move the cursor to the top of the live area (the row directly below the
 // rendered output), column 0. The cursor is assumed to be somewhere within the
 // live area; we move up by its row offset within that area.
@@ -143,7 +125,6 @@ function paintLiveAreaFull(): void {
 	const wantSpinner = isRequestActive();
 	const wantInput = userTyping || !isRequestActive();
 	const showTodo = !!(todoSummary && todoSummary.total > 0);
-	const showSubagents = activeSubagents.length > 0;
 
 	// Cursor is already at the live-area top (positioned by navigateToPromptRow).
 	// Clear from there downward.
@@ -151,21 +132,13 @@ function paintLiveAreaFull(): void {
 	process.stdout.write(ansi.CLEAR_FROM_CURSOR);
 
 	let headerRows = 0;
-	if (showSubagents) {
-		for (const sa of activeSubagents) {
-			const line = `  ${ansi.CYAN}🤖 ${sa.agent}${ansi.RESET} ${ansi.BRIGHT_BLACK}— ${sa.description}${ansi.RESET}`;
-			process.stdout.write(`${ansi.padToWidth(line, consoleWidth)}\n`);
-		}
-		headerRows += activeSubagents.length;
-	}
-
 	if (showTodo) {
 		const consoleWidth = process.stdout.columns || 80;
 		const done = todoSummary!.done;
 		const total = todoSummary!.total;
 		const complete = done >= total;
 		//const color = complete ? ansi.GREEN : ansi.CYAN;
-		const summary = `  ${ansi.BRIGHT_BLACK}${ansi.CYAN}${done}/${total} todos done${ansi.RESET}`;
+		const summary = `  ${ansi.BRIGHT_BLACK}${ansi.CYAN}${done}/${total} todo items done${ansi.RESET}`;
 		// Pad to full width so the summary fully overwrites whatever was on
 		// this row previously (e.g. the output's last line or a prior spinner).
 		process.stdout.write(`${ansi.padToWidth(summary, consoleWidth)}\n`);
