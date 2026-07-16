@@ -24,6 +24,41 @@ let requestStartTime: number | null = null;
 // already rendered it locally as a `# user` line. Cleared on first match.
 let pendingUserEcho: string | null = null;
 
+// Token/cost stats from the most recent assistant message, shown in the
+// completion banner after a turn finishes.
+interface TokenStats {
+	input: number;
+	output: number;
+	reasoning: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: number;
+}
+let lastTokenStats: TokenStats | null = null;
+
+// Context window (in tokens) for the active model, used to show the cached
+// token percentage. Resolved lazily from the providers config and cached.
+let cachedContextLimit: number | null = null;
+
+async function resolveContextLimit(client: ReturnType<typeof createOpencodeClient>): Promise<number | null> {
+	if (cachedContextLimit !== null) return cachedContextLimit;
+	try {
+		const result = await client.config.providers();
+		if (!result.error && result.data?.providers) {
+			const provider = result.data.providers.find((p) => p.id === config.providerID);
+			const model = provider?.models ? provider.models[config.modelID] : undefined;
+			if (model?.limit?.context) {
+				cachedContextLimit = model.limit.context;
+				return cachedContextLimit;
+			}
+		}
+	} catch {
+		// ignore — percentage just won't show
+	}
+	cachedContextLimit = 0;
+	return null;
+}
+
 export function isRequestActive(): boolean {
 	return requestActive;
 }
@@ -128,6 +163,7 @@ export async function sendPrompt(state: State, message: string): Promise<void> {
 	state.allEvents = [];
 	state.renderedLines = [];
 	state.lastFileAfter = new Map();
+	lastTokenStats = null;
 
 	await createLogFile();
 
@@ -262,7 +298,28 @@ async function processEvent(state: State, event: Event): Promise<void> {
 					if (duration != null) {
 						process.stdout.write("\x07");
 						const durationText = formatDuration(duration, true);
-						console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}\n`);
+						console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}`);
+
+						if (lastTokenStats) {
+							const cachedTotal =
+								lastTokenStats.cacheRead + lastTokenStats.cacheWrite;
+							const contextLimit = await resolveContextLimit(state.client);
+
+							const parts: string[] = [];
+							parts.push(`${lastTokenStats.input} in`);
+							parts.push(`${lastTokenStats.output} out`);
+							parts.push(`${cachedTotal} cached`);
+							if (contextLimit && contextLimit > 0) {
+								const pct = ((cachedTotal / contextLimit) * 100).toFixed(1);
+								parts.push(`${pct}%`);
+							}
+							parts.push(`$${lastTokenStats.cost.toFixed(4)}`);
+							console.log(
+								`  ${ansi.BRIGHT_BLACK}${parts.join(" · ")}${ansi.RESET}`,
+							);
+						}
+
+						console.log(`  ${ansi.BRIGHT_BLACK}${process.cwd()}${ansi.RESET}\n`);
 					}
 					writePrompt();
 				}
@@ -306,6 +363,21 @@ async function processEvent(state: State, event: Event): Promise<void> {
 			const session = event.properties.info;
 			if (session && session.id === state.sessionID && session.title) {
 				setTerminalTitle(session.title);
+			}
+			break;
+		}
+
+		case "message.updated": {
+			const info = event.properties?.info;
+			if (info && info.role === "assistant" && info.tokens) {
+				lastTokenStats = {
+					input: info.tokens.input ?? 0,
+					output: info.tokens.output ?? 0,
+					reasoning: info.tokens.reasoning ?? 0,
+					cacheRead: info.tokens.cache?.read ?? 0,
+					cacheWrite: info.tokens.cache?.write ?? 0,
+					cost: info.cost ?? 0,
+				};
 			}
 			break;
 		}
