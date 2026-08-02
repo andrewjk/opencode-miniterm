@@ -670,7 +670,7 @@ async function interject(state: State, input: string): Promise<void> {
 	}
 }
 
-function resetInputBufferState(): void {
+export function resetInputBufferState(): void {
 	oldInputBuffer = "";
 	oldWrappedRows = 0;
 	oldCursorRow = 0;

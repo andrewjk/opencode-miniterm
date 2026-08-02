@@ -1,8 +1,10 @@
 import type { Key } from "node:readline";
 import * as ansi from "./ansi";
-import { resumeAnimation, stopAnimation, writePrompt } from "./render";
+import { resetInputBufferState } from "./input";
+import { resumeAnimation, stopAnimation } from "./render";
 import { drainPendingPrompt } from "./server";
 import type { State } from "./types";
+import { wrapLines } from "./wrap";
 
 interface PermissionEvent {
 	type: "permission.asked" | "permission.updated";
@@ -119,7 +121,6 @@ async function submitResponse(optionIndex: number): Promise<void> {
 
 	const stateCopy = currentState;
 	const { permissionID, sessionID, selectedIndex } = permissionState;
-	const isChild = sessionID !== stateCopy.sessionID;
 
 	const responses: ("once" | "always" | "reject")[] = ["once", "always", "reject"];
 	const labels = ["Allow once", "Allow always", "Deny"];
@@ -131,6 +132,12 @@ async function submitResponse(optionIndex: number): Promise<void> {
 	currentState = null;
 
 	process.stdout.write(`  ${ansi.BRIGHT_WHITE}🔒${ansi.RESET} ${label}\n\n`);
+
+	// The dismissed overlay leaves the live-area cursor tracking describing the
+	// overlay/spinner layout rather than the echo we just wrote. Reset it so the
+	// current cursor position becomes the live-area top for whatever renders
+	// next, otherwise repaints stack on the stale offsets.
+	resetInputBufferState();
 
 	try {
 		const result = await stateCopy.client.postSessionIdPermissionsPermissionId({
@@ -145,14 +152,10 @@ async function submitResponse(optionIndex: number): Promise<void> {
 		console.error(`${ansi.RED}Failed to respond to permission:${ansi.RESET}`, error);
 	}
 
-	if (isChild) {
-		// Subagent permission answered: the parent turn is still in flight, so
-		// resume its spinner/output instead of dropping to a fresh prompt —
-		// unless another queued prompt takes over the screen.
-		if (!drainPendingPrompt(stateCopy)) resumeAnimation(stateCopy);
-	} else {
-		if (!drainPendingPrompt(stateCopy)) writePrompt();
-	}
+	// Responding unblocks the turn that was waiting (parent or subagent), so
+	// resume its spinner/output — unless another queued prompt takes over the
+	// screen.
+	if (!drainPendingPrompt(stateCopy)) resumeAnimation(stateCopy);
 }
 
 export function renderPermission(): void {
@@ -224,46 +227,4 @@ function formatPermissionTitle(permission: string, patterns: string[]): string {
 		default:
 			return `Permission: ${permission}`;
 	}
-}
-
-function wrapLines(lines: string[], width: number): string[] {
-	const wrapped: string[] = [];
-
-	for (const line of lines) {
-		const stripped = ansi.stripAnsiCodes(line);
-		if (stripped.length <= width) {
-			wrapped.push(line);
-		} else {
-			let remaining = line;
-			while (remaining) {
-				const visibleLen = ansi.stripAnsiCodes(remaining).length;
-				if (visibleLen <= width) {
-					wrapped.push(remaining);
-					break;
-				}
-
-				let col = 0;
-				let i = 0;
-				while (i < remaining.length && col < width) {
-					if (remaining[i] === "\x1b" && remaining[i + 1] === "[") {
-						const match = remaining.slice(i).match(/^\x1b\[[0-9;]*m/);
-						if (match) {
-							i += match[0].length;
-						} else {
-							i++;
-							col++;
-						}
-					} else {
-						i++;
-						col++;
-					}
-				}
-
-				wrapped.push(remaining.slice(0, i) + ansi.RESET);
-				remaining = remaining.slice(i);
-			}
-		}
-	}
-
-	return wrapped;
 }

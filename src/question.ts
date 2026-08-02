@@ -1,9 +1,11 @@
 import type { Key } from "node:readline";
 import * as ansi from "./ansi";
 import { config } from "./config";
-import { resumeAnimation, stopAnimation, writePrompt } from "./render";
-import { drainPendingPrompt, setRequestActive } from "./server";
+import { resetInputBufferState } from "./input";
+import { resumeAnimation, stopAnimation } from "./render";
+import { drainPendingPrompt, sendPrompt, setRequestActive } from "./server";
 import type { State } from "./types";
+import { wrapLines } from "./wrap";
 
 interface QuestionEvent {
 	type: "question.asked";
@@ -190,6 +192,24 @@ async function submitAnswer(answer: string): Promise<void> {
 	}
 	process.stdout.write(`  ${ansi.BRIGHT_WHITE}🗣️${ansi.RESET} ${answer}\n\n`);
 
+	// The dismissed overlay leaves the live-area cursor tracking (input row
+	// offsets, header rows) describing the overlay/spinner layout rather than
+	// the rows we just wrote. Reset it so the current cursor position — just
+	// below the answer echo — becomes the top of the live area for whatever
+	// rendering comes next, otherwise repaints stack on the stale offsets.
+	resetInputBufferState();
+
+	if (!isChild) {
+		// Parent: the question aborted the parent turn, so the answer kicks off
+		// a brand-new turn. Hand off to sendPrompt so requestActive, the
+		// animation loop, accumulatedResponse and renderedLines are reset
+		// exactly like a normal prompt — streaming repaints then line up
+		// beneath the echo instead of overwriting stale overlay state.
+		process.stdout.write(ansi.CURSOR_HIDE);
+		await sendPrompt(stateCopy, answer);
+		return;
+	}
+
 	try {
 		const result = await stateCopy.client.session.prompt({
 			path: { id: sessionID },
@@ -209,14 +229,10 @@ async function submitAnswer(answer: string): Promise<void> {
 		console.error(`${ansi.RED}Failed to send answer:${ansi.RESET}`, error);
 	}
 
-	if (isChild) {
-		// Subagent question answered: the parent turn is still in flight, so
-		// resume its spinner/output instead of dropping to a fresh prompt —
-		// unless another queued prompt takes over the screen.
-		if (!drainPendingPrompt(stateCopy)) resumeAnimation(stateCopy);
-	} else {
-		if (!drainPendingPrompt(stateCopy)) writePrompt();
-	}
+	// Subagent question answered: the parent turn is still in flight, so
+	// resume its spinner/output instead of dropping to a fresh prompt —
+	// unless another queued prompt takes over the screen.
+	if (!drainPendingPrompt(stateCopy)) resumeAnimation(stateCopy);
 }
 
 export function renderQuestion(): void {
@@ -272,47 +288,4 @@ function clearRenderedLines(): void {
 function clearQuestion(): void {
 	clearRenderedLines();
 	renderLines = [];
-}
-
-function wrapLines(lines: string[], width: number): string[] {
-	const wrapped: string[] = [];
-
-	for (const line of lines) {
-		const stripped = ansi.stripAnsiCodes(line);
-		if (stripped.length <= width) {
-			wrapped.push(line);
-		} else {
-			let remaining = line;
-			while (remaining) {
-				const ansiMatch = remaining.match(/^(\x1b\[[0-9;]*m)?/);
-				const prefix = ansiMatch?.[0] || "";
-				const visiblePrefix = ansi.stripAnsiCodes(prefix);
-
-				let chunk = remaining.slice(prefix.length);
-				let chunkVisible = ansi.stripAnsiCodes(chunk);
-
-				if (chunkVisible.length <= width - visiblePrefix.length) {
-					wrapped.push(remaining);
-					break;
-				}
-
-				const maxVisible = width - visiblePrefix.length;
-				const visibleChunk = chunkVisible.slice(0, maxVisible);
-				const chunkPattern = new RegExp(
-					`^((?:\\x1b\\[[0-9;]*m)*[^\\x1b]{0,${visibleChunk.length}})`,
-				);
-				const chunkEndMatch = chunk.match(chunkPattern);
-				if (chunkEndMatch && chunkEndMatch[1]) {
-					const chunkPart = chunkEndMatch[1];
-					wrapped.push(prefix + chunkPart + ansi.RESET);
-					remaining = chunk.slice(chunkPart.length);
-				} else {
-					wrapped.push(remaining);
-					break;
-				}
-			}
-		}
-	}
-
-	return wrapped;
 }
