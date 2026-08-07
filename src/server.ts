@@ -66,6 +66,11 @@ interface TokenStats {
 }
 let lastTokenStats: TokenStats | null = null;
 
+// Error from the most recent turn (`session.error` event or an `error` field
+// on the completed assistant message). Shown at turn end instead of the
+// completion banner so the user sees why the request stopped.
+let lastError: string | null = null;
+
 // Context window (in tokens) for the active model, used to show the cached
 // token percentage. Resolved lazily from the providers config and cached.
 let cachedContextLimit: number | null = null;
@@ -261,6 +266,7 @@ export async function sendPrompt(state: State, message: string): Promise<void> {
 	state.renderedLines = [];
 	state.lastFileAfter = new Map();
 	lastTokenStats = null;
+	lastError = null;
 	currentTodos = null;
 	frozenDone = 0;
 	activeSubagents = [];
@@ -335,7 +341,7 @@ function eventSessionID(event: Event): string | undefined {
 	return typeof sid === "string" ? sid : undefined;
 }
 
-async function processEvent(state: State, event: Event): Promise<void> {
+export async function processEvent(state: State, event: Event): Promise<void> {
 	if (retryInterval && event.type !== "session.status") {
 		clearInterval(retryInterval);
 		retryInterval = null;
@@ -446,7 +452,12 @@ async function processEvent(state: State, event: Event): Promise<void> {
 					// own; keep their text as the next prompt and skip the banner.
 					setUserTyping(false);
 				} else {
-					if (duration != null) {
+					const turnError = lastError;
+					lastError = null;
+					if (turnError) {
+						process.stdout.write("\x07");
+						console.log(`\n  ${ansi.RED}Error:${ansi.RESET} ${turnError}\n`);
+					} else if (duration != null) {
 						process.stdout.write("\x07");
 						const durationText = formatDuration(duration, true);
 						console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}`);
@@ -519,15 +530,31 @@ async function processEvent(state: State, event: Event): Promise<void> {
 			const msgSid = eventSessionID(event);
 			if (msgSid && msgSid !== state.sessionID) break;
 			const info = event.properties?.info;
-			if (info && info.role === "assistant" && info.tokens) {
-				lastTokenStats = {
-					input: info.tokens.input ?? 0,
-					output: info.tokens.output ?? 0,
-					reasoning: info.tokens.reasoning ?? 0,
-					cacheRead: info.tokens.cache?.read ?? 0,
-					cacheWrite: info.tokens.cache?.write ?? 0,
-					cost: info.cost ?? 0,
-				};
+			if (info && info.role === "assistant") {
+				if (info.tokens) {
+					lastTokenStats = {
+						input: info.tokens.input ?? 0,
+						output: info.tokens.output ?? 0,
+						reasoning: info.tokens.reasoning ?? 0,
+						cacheRead: info.tokens.cache?.read ?? 0,
+						cacheWrite: info.tokens.cache?.write ?? 0,
+						cost: info.cost ?? 0,
+					};
+				}
+				// Fallback: some providers surface the failure only on the
+				// assistant message, not via a `session.error` event.
+				const msgError = (info as any).error;
+				if (msgError) {
+					lastError = msgError?.data?.message || msgError?.message || JSON.stringify(msgError);
+				}
+			}
+			break;
+		}
+
+		case "session.error": {
+			const err = event.properties.error;
+			if (err) {
+				lastError = (err as any)?.data?.message || (err as any)?.message || JSON.stringify(err);
 			}
 			break;
 		}
