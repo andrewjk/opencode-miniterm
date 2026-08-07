@@ -455,6 +455,10 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 			if (str === " ") {
 				const now = Date.now();
 				if (
+					// Don't autocorrect during a paste — pasted text must be
+					// preserved verbatim. Rapid keys mark a paste (same heuristic
+					// used for \n handling above).
+					rapidKeyPressCount <= 2 &&
 					now - lastSpaceTime < 500 &&
 					cursorPosition > 0 &&
 					inputBuffer[cursorPosition - 1] === " "
@@ -752,6 +756,8 @@ export function _setInputState(state: {
 	oldCursorRow?: number;
 	oldInputDrawn?: boolean;
 	oldHeaderRows?: number;
+	rapidKeyPressCount?: number;
+	lastSpaceTime?: number;
 }): void {
 	if (state.inputBuffer !== undefined) inputBuffer = state.inputBuffer;
 	if (state.cursorPosition !== undefined) cursorPosition = state.cursorPosition;
@@ -760,6 +766,8 @@ export function _setInputState(state: {
 	if (state.oldCursorRow !== undefined) oldCursorRow = state.oldCursorRow;
 	if (state.oldInputDrawn !== undefined) oldInputDrawn = state.oldInputDrawn;
 	if (state.oldHeaderRows !== undefined) oldHeaderRows = state.oldHeaderRows;
+	if (state.rapidKeyPressCount !== undefined) rapidKeyPressCount = state.rapidKeyPressCount;
+	if (state.lastSpaceTime !== undefined) lastSpaceTime = state.lastSpaceTime;
 }
 
 export function _resetInputState(): void {
@@ -770,5 +778,7 @@ export function _resetInputState(): void {
 	oldCursorRow = 0;
 	oldInputDrawn = false;
 	oldHeaderRows = 0;
+	rapidKeyPressCount = 0;
+	lastSpaceTime = 0;
 	userTyping = false;
 }

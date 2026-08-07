@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import * as ansi from "../src/ansi";
-import { _resetInputState, _setInputState, renderLine } from "../src/input";
+import { _resetInputState, _setInputState, handleKeyPress, renderLine } from "../src/input";
 import * as render from "../src/render";
 
 describe("renderLine", () => {
@@ -308,6 +308,49 @@ describe("renderLine", () => {
 				.slice(upIndex, clearIndex)
 				.some((c: string) => c === ansi.CURSOR_DOWN(1));
 			expect(downAfterUp).toBe(false);
+		});
+	});
+
+	describe("double space handling", () => {
+		const mockState = {
+			// @ts-ignore this doesn't get used in these test methods
+			client: null,
+			sessionID: "ses_test",
+			renderedLines: [],
+			accumulatedResponse: [],
+			allEvents: [],
+			write: () => {},
+			lastFileAfter: new Map(),
+			shutdown: () => {},
+		} as any;
+		const spaceKey = { name: "space", ctrl: false, meta: false, shift: false } as any;
+
+		it("should autocorrect a double space to '. ' when typing normally", async () => {
+			_setInputState({
+				inputBuffer: "blah ",
+				cursorPosition: 5,
+				rapidKeyPressCount: 0,
+				lastSpaceTime: Date.now(),
+			});
+
+			await handleKeyPress(mockState, " ", spaceKey);
+
+			const calls = writeSpy.mock.calls.map((c: [string, ...unknown[]]) => c[0]);
+			expect(calls).toContain(".");
+		});
+
+		it("should preserve double spaces when pasting", async () => {
+			_setInputState({
+				inputBuffer: "blah ",
+				cursorPosition: 5,
+				rapidKeyPressCount: 5,
+				lastSpaceTime: Date.now(),
+			});
+
+			await handleKeyPress(mockState, " ", spaceKey);
+
+			const calls = writeSpy.mock.calls.map((c: [string, ...unknown[]]) => c[0]);
+			expect(calls).not.toContain(".");
 		});
 	});
 });
