@@ -249,6 +249,90 @@ describe("following an externally-started request", () => {
 		expect(part?.text).toContain("git status && git log --oneline -10");
 	});
 
+	it("should cut a multi-line bash command to its first line with an ellipsis", async () => {
+		const state = createMockState();
+
+		await processEvent(state, {
+			type: "message.part.updated",
+			properties: {
+				sessionID: "ses_1",
+				part: {
+					id: "prt_1",
+					messageID: "msg_1",
+					sessionID: "ses_1",
+					type: "tool",
+					tool: "bash",
+					callID: "call_1",
+					state: {
+						status: "running",
+						input: { command: "ls\ncd foo\necho hi" },
+						time: { start: 0 },
+					},
+				},
+			},
+		} as any);
+
+		const part = state.accumulatedResponse.find((p) => p.key === "prt_1");
+		expect(part?.text).toContain("$ bash:");
+		expect(part?.text).toContain("ls…");
+		expect(part?.text).not.toContain("cd foo");
+	});
+
+	it("should truncate a long single-line bash command to terminal width - 3 - indent - prefix", async () => {
+		const state = createMockState();
+
+		await processEvent(state, {
+			type: "message.part.updated",
+			properties: {
+				sessionID: "ses_1",
+				part: {
+					id: "prt_1",
+					messageID: "msg_1",
+					sessionID: "ses_1",
+					type: "tool",
+					tool: "bash",
+					callID: "call_1",
+					state: {
+						status: "running",
+						input: { command: "a".repeat(100) },
+						time: { start: 0 },
+					},
+				},
+			},
+		} as any);
+
+		const part = state.accumulatedResponse.find((p) => p.key === "prt_1");
+		expect(part?.text).toContain(`${"a".repeat(67)}…`);
+	});
+
+	it("should not truncate non-bash tool inputs", async () => {
+		const state = createMockState();
+
+		await processEvent(state, {
+			type: "message.part.updated",
+			properties: {
+				sessionID: "ses_1",
+				part: {
+					id: "prt_1",
+					messageID: "msg_1",
+					sessionID: "ses_1",
+					type: "tool",
+					tool: "read",
+					callID: "call_1",
+					state: {
+						status: "running",
+						input: { filePath: "line one\nline two\nline three" },
+						time: { start: 0 },
+					},
+				},
+			},
+		} as any);
+
+		const part = state.accumulatedResponse.find((p) => p.key === "prt_1");
+		expect(part?.text).toContain("line one\nline two\nline three");
+		expect(part?.text).not.toContain("…");
+	});
+
 	it("should start tracking when switching to a session that is already busy", async () => {
 		const state = createMockState({
 			session: {

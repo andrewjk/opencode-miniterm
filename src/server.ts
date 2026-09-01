@@ -709,6 +709,19 @@ async function processText(state: State, part: Part) {
 	render(state);
 }
 
+// Bash commands can be multi-line shell scripts (newlines in the command).
+// Render them as a single line: cut at the first newline or the terminal width
+// minus the ellipsis, the wrap indentation, and the `$ <tool>: ` prefix,
+// whichever is smaller, appending "…" when cut.
+function formatToolCommand(tool: string, command: string): string {
+	const width = process.stdout.columns || 80;
+	const maxLen = Math.max(0, width - 3 - 2 - `$ ${tool}: `.length);
+	const newlineIdx = command.indexOf("\n");
+	const limit = newlineIdx === -1 ? maxLen : Math.min(newlineIdx, maxLen);
+	const head = command.slice(0, limit);
+	return command.length > limit ? `${head}…` : head;
+}
+
 async function processToolUse(state: State, part: Part) {
 	const toolPart = part as ToolPart;
 	const toolName = toolPart.tool || "unknown";
@@ -732,7 +745,9 @@ async function processToolUse(state: State, part: Part) {
 		toolPart.state.input["pattern"] ||
 		// TODO: more state.input props?
 		"...";
-	const toolText = `$ ${toolName}: ${ansi.BRIGHT_BLACK}${toolInput}${ansi.RESET}`;
+	const displayInput =
+		toolName === "bash" ? formatToolCommand(toolName, String(toolInput)) : toolInput;
+	const toolText = `$ ${toolName}: ${ansi.BRIGHT_BLACK}${displayInput}${ansi.RESET}`;
 
 	if (state.accumulatedResponse[state.accumulatedResponse.length - 1]?.title === "tool") {
 		state.accumulatedResponse[state.accumulatedResponse.length - 1]!.text = toolText;
@@ -815,7 +830,8 @@ function processSubagentPart(state: State, sa: ActiveSubagent, part: Part): void
 			inp["include"] ||
 			inp["pattern"] ||
 			"...";
-		const line = `$ ${tool}: ${detail}`;
+		const displayDetail = tool === "bash" ? formatToolCommand(tool, detail) : detail;
+		const line = `$ ${tool}: ${displayDetail}`;
 		const entry = findSubagentEntry(sa, part.id);
 		if (entry) entry.text = line;
 		else pushSubagentEntry(sa, { kind: "tool", key: part.id, text: line });
