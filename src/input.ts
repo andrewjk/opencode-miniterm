@@ -374,6 +374,13 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 			return;
 		}
 		case "down": {
+			// Already on the fresh message (either the saved pre-history input or
+			// an untouched fresh buffer) — pressing down is a no-op. Without this
+			// guard, `currentInputBuffer || ""` below would wipe any text the user
+			// typed in a fresh message before ever pressing up.
+			if (historyIndex === history.length) {
+				return;
+			}
 			if (history.length > 0) {
 				if (historyIndex < history.length - 1) {
 					historyIndex++;
@@ -773,6 +780,9 @@ export function _setInputState(state: {
 	oldHeaderRows?: number;
 	rapidKeyPressCount?: number;
 	lastSpaceTime?: number;
+	history?: string[];
+	historyIndex?: number;
+	currentInputBuffer?: string | null;
 }): void {
 	if (state.inputBuffer !== undefined) inputBuffer = state.inputBuffer;
 	if (state.cursorPosition !== undefined) cursorPosition = state.cursorPosition;
@@ -783,6 +793,9 @@ export function _setInputState(state: {
 	if (state.oldHeaderRows !== undefined) oldHeaderRows = state.oldHeaderRows;
 	if (state.rapidKeyPressCount !== undefined) rapidKeyPressCount = state.rapidKeyPressCount;
 	if (state.lastSpaceTime !== undefined) lastSpaceTime = state.lastSpaceTime;
+	if (state.history !== undefined) history = state.history;
+	if (state.historyIndex !== undefined) historyIndex = state.historyIndex;
+	if (state.currentInputBuffer !== undefined) currentInputBuffer = state.currentInputBuffer;
 }
 
 export function _resetInputState(): void {
@@ -795,5 +808,22 @@ export function _resetInputState(): void {
 	oldHeaderRows = 0;
 	rapidKeyPressCount = 0;
 	lastSpaceTime = 0;
+	history = [];
+	historyIndex = history.length;
+	currentInputBuffer = null;
 	userTyping = false;
+}
+
+export function _getInputState(): {
+	inputBuffer: string;
+	cursorPosition: number;
+	historyIndex: number;
+	currentInputBuffer: string | null;
+} {
+	return {
+		inputBuffer,
+		cursorPosition,
+		historyIndex,
+		currentInputBuffer,
+	};
 }

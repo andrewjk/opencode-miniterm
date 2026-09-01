@@ -362,6 +362,89 @@ describe("renderLine", () => {
 			expect(calls).not.toContain(".");
 		});
 	});
+
+	describe("history navigation", () => {
+		const mockState = {
+			// @ts-ignore this doesn't get used in these test methods
+			client: null,
+			sessionID: "ses_test",
+			renderedLines: [],
+			accumulatedResponse: [],
+			allEvents: [],
+			write: () => {},
+			lastFileAfter: new Map(),
+			shutdown: () => {},
+		} as any;
+		const upKey = { name: "up", ctrl: false, meta: false, shift: false } as any;
+		const downKey = { name: "down", ctrl: false, meta: false, shift: false } as any;
+
+		it("should not clear a fresh message when pressing down", async () => {
+			_setInputState({
+				inputBuffer: "fresh draft",
+				cursorPosition: 11,
+				history: ["old one", "old two"],
+				historyIndex: 2,
+				currentInputBuffer: null,
+			});
+
+			await handleKeyPress(mockState, "", downKey);
+
+			const state = _getInputState();
+			expect(state.inputBuffer).toBe("fresh draft");
+			expect(state.historyIndex).toBe(2);
+		});
+
+		it("should be a no-op pressing down twice at the fresh message", async () => {
+			_setInputState({
+				inputBuffer: "fresh draft",
+				cursorPosition: 11,
+				history: ["old one", "old two"],
+				historyIndex: 2,
+				currentInputBuffer: null,
+			});
+
+			await handleKeyPress(mockState, "", downKey);
+			await handleKeyPress(mockState, "", downKey);
+
+			const state = _getInputState();
+			expect(state.inputBuffer).toBe("fresh draft");
+			expect(state.historyIndex).toBe(2);
+		});
+
+		it("should return to the saved fresh message after navigating up and down", async () => {
+			_setInputState({
+				inputBuffer: "fresh draft",
+				cursorPosition: 11,
+				history: ["old one", "old two"],
+				historyIndex: 2,
+				currentInputBuffer: null,
+			});
+
+			await handleKeyPress(mockState, "", upKey);
+			expect(_getInputState().inputBuffer).toBe("old two");
+
+			await handleKeyPress(mockState, "", downKey);
+			expect(_getInputState().inputBuffer).toBe("fresh draft");
+			expect(_getInputState().historyIndex).toBe(2);
+		});
+
+		it("should do nothing pressing down at the end with no prior history navigation", async () => {
+			_setInputState({
+				inputBuffer: "",
+				cursorPosition: 0,
+				history: ["old one", "old two"],
+				historyIndex: 2,
+				currentInputBuffer: null,
+			});
+
+			await handleKeyPress(mockState, "", downKey);
+
+			const state = _getInputState();
+			expect(state.inputBuffer).toBe("");
+			expect(state.historyIndex).toBe(2);
+		});
+	});
+
 	describe("typing during an active request with a todo summary", () => {
 		const mockState = {
 			// @ts-ignore this doesn't get used in these test methods
