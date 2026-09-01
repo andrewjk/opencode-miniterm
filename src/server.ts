@@ -724,6 +724,7 @@ async function processToolUse(state: State, part: Part) {
 	}
 
 	const toolInput =
+		toolPart.state.input["command"] ||
 		toolPart.state.input["description"] ||
 		toolPart.state.input["filePath"] ||
 		toolPart.state.input["path"] ||
@@ -807,6 +808,7 @@ function processSubagentPart(state: State, sa: ActiveSubagent, part: Part): void
 		if (tool === "task" || tool === "todowrite" || tool === "question") return;
 		const inp = (tp.state?.input || {}) as Record<string, any>;
 		const detail =
+			inp["command"] ||
 			inp["description"] ||
 			inp["filePath"] ||
 			inp["path"] ||

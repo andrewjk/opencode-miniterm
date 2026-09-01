@@ -220,6 +220,35 @@ describe("following an externally-started request", () => {
 		expect(logOutput).toContain("Completed in");
 	});
 
+	it("should show the bash command in the tool part", async () => {
+		const state = createMockState();
+
+		await processEvent(state, {
+			type: "message.part.updated",
+			properties: {
+				sessionID: "ses_1",
+				part: {
+					id: "prt_1",
+					messageID: "msg_1",
+					sessionID: "ses_1",
+					type: "tool",
+					tool: "bash",
+					callID: "call_1",
+					state: {
+						status: "running",
+						input: { command: "git status && git log --oneline -10" },
+						time: { start: 0 },
+					},
+				},
+			},
+		} as any);
+
+		const part = state.accumulatedResponse.find((p) => p.key === "prt_1");
+		expect(part?.title).toBe("tool");
+		expect(part?.text).toContain("$ bash:");
+		expect(part?.text).toContain("git status && git log --oneline -10");
+	});
+
 	it("should start tracking when switching to a session that is already busy", async () => {
 		const state = createMockState({
 			session: {
