@@ -2,7 +2,14 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 import type { Event, FileDiff, Part, Todo, ToolPart } from "@opencode-ai/sdk";
 import * as ansi from "./ansi";
 import { config } from "./config";
-import { clearTodoSummary, isUserTyping, setTodoSummary, setUserTyping } from "./input";
+import {
+	afterOutputPaint,
+	clearTodoSummary,
+	isUserTyping,
+	navigateToPromptRow,
+	setTodoSummary,
+	setUserTyping,
+} from "./input";
 import { closeLogFile, createLogFile, writeToLog } from "./logs";
 import { getPermissionState, startPermission } from "./permission";
 import { getQuestionState, startQuestion } from "./question";
@@ -451,6 +458,11 @@ export async function processEvent(state: State, event: Event): Promise<void> {
 					// User was composing an interjection when the turn finished on its
 					// own; keep their text as the next prompt and skip the banner.
 					setUserTyping(false);
+					// stopAnimation() above wiped the input row, so repaint the live
+					// area (spinner gone, todo summary and typed text kept). This
+					// also re-syncs the header-row tracking with what's on screen.
+					navigateToPromptRow();
+					afterOutputPaint();
 				} else {
 					const turnError = lastError;
 					lastError = null;

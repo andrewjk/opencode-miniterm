@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import * as ansi from "../src/ansi";
-import { _resetInputState, _setInputState, handleKeyPress, renderLine } from "../src/input";
+import {
+	_getInputState,
+	_resetInputState,
+	_setInputState,
+	handleKeyPress,
+	navigateToPromptRow,
+	renderLine,
+	setTodoSummary,
+} from "../src/input";
 import * as render from "../src/render";
+import { setRequestActive } from "../src/server";
 
 describe("renderLine", () => {
 	let writeSpy: ReturnType<typeof spyOn>;
@@ -351,6 +360,65 @@ describe("renderLine", () => {
 
 			const calls = writeSpy.mock.calls.map((c: [string, ...unknown[]]) => c[0]);
 			expect(calls).not.toContain(".");
+		});
+	});
+	describe("typing during an active request with a todo summary", () => {
+		const mockState = {
+			// @ts-ignore this doesn't get used in these test methods
+			client: null,
+			sessionID: "ses_test",
+			renderedLines: [],
+			accumulatedResponse: [],
+			allEvents: [],
+			write: () => {},
+			lastFileAfter: new Map(),
+			shutdown: () => {},
+		} as any;
+		const letterKey = { name: "h", ctrl: false, meta: false, shift: false } as any;
+
+		beforeEach(() => {
+			setRequestActive(true);
+			setTodoSummary(1, 4);
+			// Steady spinner-only state as painted by the last animation tick:
+			// todo row + spinner row drawn (oldHeaderRows 2), cursor resting on
+			// the spinner row below the live-area top.
+			_setInputState({
+				inputBuffer: "",
+				cursorPosition: 0,
+				oldInputBuffer: "",
+				oldWrappedRows: 0,
+				oldCursorRow: 0,
+				oldInputDrawn: false,
+				oldHeaderRows: 2,
+			});
+		});
+
+		afterEach(() => {
+			setRequestActive(false);
+			_resetInputState();
+		});
+
+		it("first keystroke should move to the live-area top before repainting", async () => {
+			await handleKeyPress(mockState, "h", letterKey);
+
+			const calls = writeSpy.mock.calls.map((c: [string, ...unknown[]]) => c[0]);
+			// Cursor rests on the spinner row (1 below the todo summary row), so
+			// the repaint must first navigate up to the live-area top or the old
+			// todo line is left on screen.
+			expect(calls).toContain(ansi.CURSOR_UP(1));
+		});
+
+		it("subsequent keystrokes should count todo + spinner rows in header tracking", async () => {
+			await handleKeyPress(mockState, "h", letterKey);
+			await handleKeyPress(mockState, "i", { ...letterKey, name: "i" } as any);
+
+			navigateToPromptRow();
+
+			const calls = writeSpy.mock.calls.map((c: [string, ...unknown[]]) => c[0]);
+			// With input drawn and cursor at input row 0, reaching the live-area
+			// top requires moving up both header rows. Getting UP(1) here means
+			// the todo row was dropped from tracking and would stack stale lines.
+			expect(calls).toContain(ansi.CURSOR_UP(2));
 		});
 	});
 });

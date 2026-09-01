@@ -87,6 +87,18 @@ interface TodoSummary {
 }
 let todoSummary: TodoSummary | null = null;
 
+// Number of header rows currently drawn above the input line within the live
+// area: the todo summary row (when a todo list is active) plus the spinner row
+// (while a request is running). Must agree with paintLiveAreaFull()'s
+// headerRows accounting or navigateToPromptRow() will target the wrong row and
+// stale header lines stack up on screen.
+function headerRowCount(): number {
+	let rows = 0;
+	if (todoSummary && todoSummary.total > 0) rows += 1;
+	if (isRequestActive()) rows += 1;
+	return rows;
+}
+
 // Update the todo summary. Called from server.ts when a todo.updated event
 // arrives. A fresh set (total change) replaces the frozen summary.
 export function setTodoSummary(done: number, total: number): void {
@@ -208,8 +220,11 @@ export function afterOutputPaint(): void {
 function beginTypingIfBusy(): boolean {
 	if (isRequestActive() && !userTyping) {
 		userTyping = true;
-		// Cursor sits on the spinner row (live-area top). paintLiveAreaFull will
-		// draw the spinner header and the input line below it.
+		// The cursor rests on the last painted header row (the spinner), which
+		// is below the live-area top when a todo summary row is also shown.
+		// navigateToPromptRow() accounts for the drawn header rows and input
+		// rows to land on the true live-area top before the full repaint.
+		navigateToPromptRow();
 		paintLiveAreaFull();
 		return true;
 	}
@@ -300,7 +315,7 @@ export function renderLine(): void {
 	oldWrappedRows = newWrappedRows;
 	oldCursorRow = newCursorRow;
 	oldInputDrawn = true;
-	oldHeaderRows = isRequestActive() ? 1 : 0;
+	oldHeaderRows = headerRowCount();
 }
 
 export async function handleKeyPress(state: State, str: string, key: Key) {
