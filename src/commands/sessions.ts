@@ -2,6 +2,7 @@ import type { Session } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
 import { updateSessionTitle, writePrompt } from "../render";
+import { startTrackingIfSessionBusy } from "../server";
 import type { Command, State } from "../types";
 
 let command: Command = {
@@ -135,6 +136,7 @@ async function handleKey(state: State, key: Key, str?: string) {
 			if (selected) {
 				config.sessionIDs[process.cwd()] = selected.id;
 				saveConfig();
+				state.sessionID = selected.id;
 				console.log();
 				console.log(`Switched to session: ${selected.id.substring(0, 8)}...`);
 				if (selected.title) {
@@ -142,6 +144,9 @@ async function handleKey(state: State, key: Key, str?: string) {
 				}
 				console.log();
 				await updateSessionTitle(state);
+				// If the session is already running a request on the server, follow
+				// it: start the spinner and let parts stream into the output.
+				await startTrackingIfSessionBusy(state);
 			}
 			writePrompt();
 			return;

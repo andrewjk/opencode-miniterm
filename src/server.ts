@@ -262,10 +262,12 @@ export async function startEventListener(state: State): Promise<void> {
 	}
 }
 
-// Start a new turn (idle -> busy). Non-blocking: completion is driven by the
-// `session.idle` event in processEvent().
-export async function sendPrompt(state: State, message: string): Promise<void> {
-	processing = false;
+// Bring the app into "request active" state and reset per-turn output. Shared
+// by sendPrompt (a request we started) and external requests we're following
+// (a session already busy when we switch to it, or one that goes busy while
+// we're watching). Callers set `processing` to the desired initial value first.
+export function startRequestTracking(state: State): void {
+	if (requestActive) return;
 	requestActive = true;
 	requestStartTime = Date.now();
 	state.accumulatedResponse = [];
@@ -279,12 +281,36 @@ export async function sendPrompt(state: State, message: string): Promise<void> {
 	activeSubagents = [];
 	pendingPrompts = [];
 	clearTodoSummary();
+	startAnimation(state, requestStartTime);
+}
+
+// After switching to a session, check whether it's already running a request on
+// the server (e.g. started from another client). If so, start tracking it so
+// the streamed parts render and the eventual `session.idle` completes normally.
+// The SSE `session.status busy` handler is a fallback for requests that start
+// after the switch.
+export async function startTrackingIfSessionBusy(state: State): Promise<void> {
+	if (requestActive) return;
+	try {
+		const result = await state.client.session.status();
+		if (!result.error && result.data && result.data[state.sessionID]?.type === "busy") {
+			processing = true;
+			startRequestTracking(state);
+		}
+	} catch {
+		// ignore — the SSE busy event will handle it if we can't query status
+	}
+}
+
+// Start a new turn (idle -> busy). Non-blocking: completion is driven by the
+// `session.idle` event in processEvent().
+export async function sendPrompt(state: State, message: string): Promise<void> {
+	processing = false;
+	startRequestTracking(state);
 
 	await createLogFile();
 
 	await writeToLog(`User: ${message}\n\n`);
-
-	startAnimation(state, requestStartTime);
 
 	const result = await state.client.session.promptAsync({
 		path: { id: state.sessionID },
@@ -422,6 +448,19 @@ export async function processEvent(state: State, event: Event): Promise<void> {
 			// for the parent — ignore them entirely.
 			if (statusSid && statusSid !== state.sessionID) {
 				break;
+			}
+			// A request we didn't start is running on the active session (e.g. it
+			// went busy after we switched to it). Start tracking it so parts render
+			// and the turn-end idle completes normally. When we started the request
+			// ourselves (requestActive), leave `processing` alone — it suppresses
+			// the user's message echo until the first step-start.
+			if (
+				event.type === "session.status" &&
+				event.properties.status.type === "busy" &&
+				!requestActive
+			) {
+				processing = true;
+				startRequestTracking(state);
 			}
 			const isIdle =
 				event.type === "session.idle" ||
