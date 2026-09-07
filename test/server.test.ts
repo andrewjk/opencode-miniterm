@@ -356,4 +356,19 @@ describe("following an externally-started request", () => {
 
 		expect(isRequestActive()).toBe(false);
 	});
+
+	it("should keep only a rolling window of raw events", async () => {
+		const state = createMockState();
+
+		for (let i = 0; i < 600; i++) {
+			await processEvent(state, {
+				type: "server.heartbeat",
+				properties: { n: i },
+			} as any);
+		}
+
+		expect(state.allEvents.length).toBe(500);
+		expect((state.allEvents[0] as any).properties.n).toBe(100);
+		expect((state.allEvents[state.allEvents.length - 1] as any).properties.n).toBe(599);
+	});
 });

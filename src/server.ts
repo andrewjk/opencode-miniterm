@@ -13,7 +13,14 @@ import {
 import { closeLogFile, createLogFile, writeToLog } from "./logs";
 import { getPermissionState, startPermission } from "./permission";
 import { getQuestionState, startQuestion } from "./question";
-import { render, setTerminalTitle, startAnimation, stopAnimation, writePrompt } from "./render";
+import {
+	markOutputDirty,
+	render,
+	setTerminalTitle,
+	startAnimation,
+	stopAnimation,
+	writePrompt,
+} from "./render";
 import type { State } from "./types";
 import { formatDuration } from "./utils";
 
@@ -374,6 +381,22 @@ function eventSessionID(event: Event): string | undefined {
 	return typeof sid === "string" ? sid : undefined;
 }
 
+// Rolling window of raw events kept for /debug. Streaming events
+// (message.part.updated) each carry a full cumulative snapshot of the part, so
+// unbounded retention makes memory grow quadratically over a long turn — and
+// the global SSE stream includes other sessions' events too.
+const MAX_STORED_EVENTS = 500;
+
+// Hot streaming paths (text/reasoning/delta updates, several per second) call
+// this instead of render(): mark the output dirty and let the 10Hz animation
+// tick paint it, avoiding a full markdown re-transform of the entire output on
+// every token. When no request is active there is no tick, so render now.
+function streamRender(state: State): void {
+	markOutputDirty();
+	if (requestActive || promptOverlayActive()) return;
+	render(state);
+}
+
 export async function processEvent(state: State, event: Event): Promise<void> {
 	if (retryInterval && event.type !== "session.status") {
 		clearInterval(retryInterval);
@@ -381,6 +404,9 @@ export async function processEvent(state: State, event: Event): Promise<void> {
 	}
 
 	state.allEvents.push(event);
+	if (state.allEvents.length > MAX_STORED_EVENTS) {
+		state.allEvents.splice(0, state.allEvents.length - MAX_STORED_EVENTS);
+	}
 
 	switch (event.type) {
 		case "message.part.updated": {
@@ -683,7 +709,7 @@ async function processReasoning(state: State, part: Part) {
 	const cleanText = ansi.stripAnsiCodes(text.trimStart());
 	await writeToLog(`Thinking:\n\n${cleanText}\n\n`);
 
-	render(state);
+	streamRender(state);
 }
 
 async function processText(state: State, part: Part) {
@@ -706,7 +732,7 @@ async function processText(state: State, part: Part) {
 	const cleanText = ansi.stripAnsiCodes(text.trimStart());
 	await writeToLog(`Response:\n\n${cleanText}\n\n`);
 
-	render(state);
+	streamRender(state);
 }
 
 // Bash commands can be multi-line shell scripts (newlines in the command).
@@ -887,11 +913,12 @@ function buildSubagentText(sa: ActiveSubagent): string {
 }
 
 // Write the subagent's current box text into its accumulated part. `paint`
-// controls whether a redraw is triggered immediately (part updates do, since
-// they're infrequent; deltas rely on the animation tick).
+// requests an immediate redraw (infrequent part updates); deltas rely on the
+// animation tick picking up the dirty flag.
 function syncSubagentBox(state: State, sa: ActiveSubagent, paint: boolean): void {
 	upsertSubagentPart(state, sa.id, buildSubagentText(sa));
-	if (paint && !promptOverlayActive()) render(state);
+	markOutputDirty();
+	if (paint) streamRender(state);
 }
 
 function pushSubagentEntry(sa: ActiveSubagent, entry: SubagentEntry): void {
@@ -952,7 +979,7 @@ function processDelta(state: State, partID: string, delta: string) {
 		responsePart.text += delta;
 	}
 
-	if (!promptOverlayActive()) render(state);
+	streamRender(state);
 }
 
 async function processDiff(state: State, diff: FileDiff[]) {

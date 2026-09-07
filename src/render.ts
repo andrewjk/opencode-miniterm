@@ -12,7 +12,19 @@ import { formatDuration } from "./utils";
 // the box stays compact while streaming.
 const SUBAGENT_BOX_LINES = 10;
 
+// Set by streaming paths when the accumulated output changed but doesn't need
+// an immediate paint. The animation tick checks it and only runs a full
+// render() (which re-transforms the whole output through markdown) when the
+// content actually changed — otherwise it just repaints the live area. This
+// keeps streaming from re-rendering the entire output on every token.
+let outputDirty = false;
+
+export function markOutputDirty(): void {
+	outputDirty = true;
+}
+
 export function render(state: State, details = false): void {
+	outputDirty = false;
 	const width = process.stdout.columns || 80;
 	const lineWidth = width - 2;
 
@@ -431,7 +443,14 @@ export function startAnimation(state: State, startTime?: number): void {
 
 	animationInterval = setInterval(() => {
 		animationIndex = (animationIndex + 1) % ANIMATION_CHARS.length;
-		render(state);
+		if (outputDirty) {
+			render(state);
+		} else {
+			// Nothing changed — just refresh the spinner + input rows instead
+			// of re-running the full markdown transform.
+			navigateToPromptRow();
+			afterOutputPaint();
+		}
 	}, 100);
 }
 
