@@ -198,14 +198,18 @@ export async function cancelRequest(state: State): Promise<void> {
 	await closeLogFile();
 }
 
+function authHeaders(): Record<string, string> | undefined {
+	return AUTH_PASSWORD
+		? {
+				Authorization: `Basic ${Buffer.from(`${AUTH_USERNAME}:${AUTH_PASSWORD}`).toString("base64")}`,
+			}
+		: undefined;
+}
+
 export function createClient(cwd: string): ReturnType<typeof createOpencodeClient> {
 	return createOpencodeClient({
 		baseUrl: SERVER_URL,
-		headers: AUTH_PASSWORD
-			? {
-					Authorization: `Basic ${Buffer.from(`${AUTH_USERNAME}:${AUTH_PASSWORD}`).toString("base64")}`,
-				}
-			: undefined,
+		headers: authHeaders(),
 		directory: cwd,
 	});
 }
@@ -240,32 +244,176 @@ export async function validateSession(state: State, sessionID: string): Promise<
 	}
 }
 
-export async function startEventListener(state: State): Promise<void> {
-	try {
-		const { stream } = await state.client.event.subscribe({
-			onSseError: (error) => {
-				console.error(
-					`\n${ansi.RED}Connection error:${ansi.RESET}`,
-					error instanceof Error ? error.message : String(error),
-				);
-			},
-		});
+// ====================
+// EVENT STREAM SUPERVISION
+// ====================
 
-		for await (const event of stream) {
-			try {
-				await processEvent(state, event);
-			} catch (error) {
+// The SDK's SSE client has no idle timeout: if the server goes quiet on an
+// open connection (half-open TCP, dropped NAT, hung server), the stream
+// blocks forever with no error, and a clean server close ends the stream
+// silently. The watchdog below treats "no SSE events for a while" as
+// suspicious, probes GET /global/health, and recovers: unhealthy or
+// repeatedly-silent streams are aborted and resubscribed, and a missed
+// turn-end idle (the spinner-forever hang) is synthesized from session
+// status. The SSE stream itself has no heartbeat, so silence is the only
+// signal we have.
+export const watchdogConfig = {
+	intervalMs: 5_000,
+	stallTimeoutMs: 60_000,
+	idleStallTimeoutMs: 120_000,
+	healthTimeoutMs: 5_000,
+	maxSilentProbes: 2,
+	resubscribeDelayMs: 1_000,
+};
+
+let listenerRunning = false;
+let listenerGeneration = 0;
+let eventAbort: AbortController | null = null;
+let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+let lastEventAt = 0;
+let silentProbes = 0;
+let probeInFlight = false;
+
+export function markEventReceived(timestamp: number = Date.now()): void {
+	lastEventAt = timestamp;
+	silentProbes = 0;
+}
+
+async function healthProbe(): Promise<boolean> {
+	try {
+		const response = await fetch(`${SERVER_URL}/global/health`, {
+			headers: authHeaders(),
+			signal: AbortSignal.timeout(watchdogConfig.healthTimeoutMs),
+		});
+		return response.ok;
+	} catch {
+		return false;
+	}
+}
+
+async function isSessionBusy(state: State): Promise<boolean> {
+	try {
+		const result = await state.client.session.status();
+		if (result.error || !result.data) return false;
+		return result.data[state.sessionID]?.type === "busy";
+	} catch {
+		return false;
+	}
+}
+
+export async function watchdogTick(state: State, now: number = Date.now()): Promise<void> {
+	if (!listenerRunning || probeInFlight || lastEventAt === 0) return;
+	const stallTimeout = requestActive
+		? watchdogConfig.stallTimeoutMs
+		: watchdogConfig.idleStallTimeoutMs;
+	if (now - lastEventAt < stallTimeout) {
+		silentProbes = 0;
+		return;
+	}
+
+	probeInFlight = true;
+	try {
+		const healthy = await healthProbe();
+		let reconnectReason: string | null = healthy ? null : "health check failed";
+
+		if (healthy && requestActive && state.sessionID) {
+			if (!(await isSessionBusy(state))) {
 				console.error(
-					`\n${ansi.RED}Event processing error:${ansi.RESET}`,
+					`\n${ansi.BRIGHT_BLACK}Event stream stalled but the session is idle on the server; finishing the turn${ansi.RESET}`,
+				);
+				markEventReceived(now);
+				await processEvent(state, {
+					type: "session.idle",
+					properties: { sessionID: state.sessionID },
+				} as Event);
+				reconnectReason = "session went idle during a stalled stream";
+			}
+		}
+
+		if (reconnectReason === null && silentProbes + 1 >= watchdogConfig.maxSilentProbes) {
+			reconnectReason = "stream silent across consecutive health probes";
+		}
+
+		if (reconnectReason !== null) {
+			console.error(
+				`\n${ansi.RED}Event stream unresponsive (${reconnectReason}); reconnecting${ansi.RESET}`,
+			);
+			markEventReceived(now);
+			eventAbort?.abort();
+		} else {
+			lastEventAt = now;
+			silentProbes++;
+		}
+	} finally {
+		probeInFlight = false;
+	}
+}
+
+async function runEventStream(state: State, generation: number): Promise<void> {
+	const controller = eventAbort!;
+	const { stream } = await state.client.event.subscribe({
+		signal: controller.signal,
+		onSseError: (error) => {
+			if (controller.signal.aborted) return;
+			console.error(
+				`\n${ansi.RED}Connection error:${ansi.RESET}`,
+				error instanceof Error ? error.message : String(error),
+			);
+		},
+	});
+
+	markEventReceived();
+	for await (const event of stream) {
+		if (generation !== listenerGeneration || controller.signal.aborted) break;
+		try {
+			await processEvent(state, event);
+		} catch (error) {
+			console.error(
+				`\n${ansi.RED}Event processing error:${ansi.RESET}`,
+				error instanceof Error ? error.message : String(error),
+			);
+		}
+		markEventReceived();
+	}
+}
+
+export async function startEventListener(state: State): Promise<void> {
+	listenerRunning = true;
+	listenerGeneration++;
+	const generation = listenerGeneration;
+	markEventReceived();
+	if (watchdogTimer) {
+		clearInterval(watchdogTimer);
+	}
+	watchdogTimer = setInterval(() => {
+		void watchdogTick(state).catch(() => {});
+	}, watchdogConfig.intervalMs);
+
+	while (listenerRunning && generation === listenerGeneration) {
+		eventAbort = new AbortController();
+		try {
+			await runEventStream(state, generation);
+		} catch (error) {
+			if (listenerRunning && generation === listenerGeneration) {
+				console.error(
+					`\n${ansi.RED}Event stream error:${ansi.RESET}`,
 					error instanceof Error ? error.message : String(error),
 				);
 			}
 		}
-	} catch (error) {
-		console.error(
-			`\n${ansi.RED}Failed to connect to event stream:${ansi.RESET}`,
-			error instanceof Error ? error.message : String(error),
-		);
+		if (!listenerRunning || generation !== listenerGeneration) break;
+		await new Promise((resolve) => setTimeout(resolve, watchdogConfig.resubscribeDelayMs));
+	}
+}
+
+export function stopEventListener(): void {
+	listenerRunning = false;
+	listenerGeneration++;
+	eventAbort?.abort();
+	eventAbort = null;
+	if (watchdogTimer) {
+		clearInterval(watchdogTimer);
+		watchdogTimer = null;
 	}
 }
 

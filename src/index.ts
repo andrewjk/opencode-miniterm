@@ -6,7 +6,13 @@ import * as ansi from "./ansi";
 import { config, loadConfig, saveConfig } from "./config";
 import { handleKeyPress, loadSessionHistory } from "./input";
 import { getActiveDisplay, updateSessionTitle, writePrompt } from "./render";
-import { createClient, createSession, startEventListener, validateSession } from "./server";
+import {
+	createClient,
+	createSession,
+	startEventListener,
+	stopEventListener,
+	validateSession,
+} from "./server";
 import type { State } from "./types";
 
 let server: Awaited<ReturnType<typeof createOpencodeServer>> | undefined;
@@ -110,6 +116,7 @@ async function main() {
 }
 
 function shutdown() {
+	stopEventListener();
 	if (process.stdin.setRawMode) {
 		process.stdin.setRawMode(false);
 	}
