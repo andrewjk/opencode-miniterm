@@ -478,6 +478,28 @@ export function resumeAnimation(state: State): void {
 	startAnimation(state, requestStartTime ?? undefined);
 }
 
+
+export async function getActiveModel(client: OpencodeClient): Promise<string> {
+	let modelName = "";
+	try {
+		const providersResult = await			client.config.providers()
+		if (!providersResult.error) {
+			const providers = providersResult.data?.providers || [];
+			for (const provider of providers) {
+				const models = Object.values(provider.models || {});
+				for (const model of models) {
+					if (provider.id === config.providerID && model.id === config.modelID) {
+						modelName = model.name || model.id;
+						break;
+					}
+				}
+				if (modelName) break;
+			}
+		}
+	} catch (error) {}
+	return modelName;
+}
+
 export async function getActiveDisplay(client: OpencodeClient): Promise<string> {
 	let agentName = "";
 	let providerName = "";

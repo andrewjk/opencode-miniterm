@@ -14,6 +14,7 @@ import { closeLogFile, createLogFile, writeToLog } from "./logs";
 import { getPermissionState, startPermission } from "./permission";
 import { getQuestionState, startQuestion } from "./question";
 import {
+	getActiveModel,
 	markOutputDirty,
 	render,
 	setTerminalTitle,
@@ -687,21 +688,22 @@ export async function processEvent(state: State, event: Event): Promise<void> {
 						const durationText = formatDuration(duration, true);
 						console.log(`  ${ansi.BRIGHT_BLACK}Completed in ${durationText}${ansi.RESET}`);
 
+						const modelName = await getActiveModel(state.client)
+						const parts = [modelName];
 						if (lastTokenStats) {
 							const cachedTotal = lastTokenStats.cacheRead + lastTokenStats.cacheWrite;
 							const contextLimit = await resolveContextLimit(state.client);
-
-							const parts: string[] = [];
-							parts.push(`${lastTokenStats.input} in`);
-							parts.push(`${lastTokenStats.output} out`);
-							parts.push(`${cachedTotal} cached`);
 							if (contextLimit && contextLimit > 0) {
 								const pct = ((cachedTotal / contextLimit) * 100).toFixed(1);
 								parts.push(`${pct}%`);
+							} else {
+								parts.push(`${lastTokenStats.input} i`);
+								parts.push(`${lastTokenStats.output} o`);
+								parts.push(`${cachedTotal} cached`);
 							}
 							parts.push(`$${lastTokenStats.cost.toFixed(4)}`);
-							console.log(`  ${ansi.BRIGHT_BLACK}${parts.join(" · ")}${ansi.RESET}`);
 						}
+						console.log(`  ${ansi.BRIGHT_BLACK}${parts.join(" · ")}${ansi.RESET}`);
 
 						console.log(`  ${ansi.BRIGHT_BLACK}${process.cwd()}${ansi.RESET}\n`);
 					}
