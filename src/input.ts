@@ -355,6 +355,20 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 		}
 	}
 
+	// Option/Alt + Left/Right moves by word. Ghostty (and others) send ESC b /
+	// ESC f, which arrive as { name: "b"|"f", meta: true }; other terminals
+	// send CSI meta-arrows ({ name: "left"|"right", meta: true }).
+	if (key.meta && (key.name === "left" || key.name === "b")) {
+		cursorPosition = findPreviousWordBoundary(inputBuffer, cursorPosition);
+		renderLine();
+		return;
+	}
+	if (key.meta && (key.name === "right" || key.name === "f")) {
+		cursorPosition = findNextWordBoundary(inputBuffer, cursorPosition);
+		renderLine();
+		return;
+	}
+
 	switch (key.name) {
 		case "up": {
 			if (historyIndex === history.length) {
@@ -458,17 +472,13 @@ export async function handleKeyPress(state: State, str: string, key: Key) {
 			break;
 		}
 		case "left": {
-			if (key.meta) {
-				cursorPosition = findPreviousWordBoundary(inputBuffer, cursorPosition);
-			} else if (cursorPosition > 0) {
+			if (cursorPosition > 0) {
 				cursorPosition--;
 			}
 			break;
 		}
 		case "right": {
-			if (key.meta) {
-				cursorPosition = findNextWordBoundary(inputBuffer, cursorPosition);
-			} else if (cursorPosition < inputBuffer.length) {
+			if (cursorPosition < inputBuffer.length) {
 				cursorPosition++;
 			}
 			break;

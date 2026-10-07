@@ -363,6 +363,72 @@ describe("renderLine", () => {
 		});
 	});
 
+	describe("word navigation", () => {
+		const mockState = {
+			// @ts-ignore this doesn't get used in these test methods
+			client: null,
+			sessionID: "ses_test",
+			renderedLines: [],
+			accumulatedResponse: [],
+			allEvents: [],
+			write: () => {},
+			lastFileAfter: new Map(),
+			shutdown: () => {},
+		} as any;
+
+		it("should move back a word on Option+Left (ESC b, meta+b)", async () => {
+			_setInputState({ inputBuffer: "hello world", cursorPosition: 11 });
+
+			await handleKeyPress(mockState, "", {
+				name: "b",
+				meta: true,
+				ctrl: false,
+				shift: false,
+			} as any);
+
+			expect(_getInputState().cursorPosition).toBe(6);
+		});
+
+		it("should move forward a word on Option+Right (ESC f, meta+f)", async () => {
+			_setInputState({ inputBuffer: "hello world", cursorPosition: 0 });
+
+			await handleKeyPress(mockState, "", {
+				name: "f",
+				meta: true,
+				ctrl: false,
+				shift: false,
+			} as any);
+
+			expect(_getInputState().cursorPosition).toBe(6);
+		});
+
+		it("should move back a word on a CSI meta-left", async () => {
+			_setInputState({ inputBuffer: "hello world", cursorPosition: 11 });
+
+			await handleKeyPress(mockState, "", {
+				name: "left",
+				meta: true,
+				ctrl: false,
+				shift: false,
+			} as any);
+
+			expect(_getInputState().cursorPosition).toBe(6);
+		});
+
+		it("should move one character on a plain left", async () => {
+			_setInputState({ inputBuffer: "hello world", cursorPosition: 11 });
+
+			await handleKeyPress(mockState, "", {
+				name: "left",
+				meta: false,
+				ctrl: false,
+				shift: false,
+			} as any);
+
+			expect(_getInputState().cursorPosition).toBe(10);
+		});
+	});
+
 	describe("history navigation", () => {
 		const mockState = {
 			// @ts-ignore this doesn't get used in these test methods
