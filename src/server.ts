@@ -292,13 +292,18 @@ async function healthProbe(): Promise<boolean> {
 	}
 }
 
-async function isSessionBusy(state: State): Promise<boolean> {
+// Returns the server's status type for the active session, or null when it
+// can't be determined (request error, unknown session). A missing status must
+// NOT be treated as idle: while the model is retrying a provider request the
+// status is `retry`, and during a long-running tool it may briefly be absent,
+// so only an explicit `idle` means the turn is really over.
+async function getSessionStatus(state: State): Promise<string | null> {
 	try {
 		const result = await state.client.session.status();
-		if (result.error || !result.data) return false;
-		return result.data[state.sessionID]?.type === "busy";
+		if (result.error || !result.data) return null;
+		return result.data[state.sessionID]?.type ?? null;
 	} catch {
-		return false;
+		return null;
 	}
 }
 
@@ -318,7 +323,7 @@ export async function watchdogTick(state: State, now: number = Date.now()): Prom
 		let reconnectReason: string | null = healthy ? null : "health check failed";
 
 		if (healthy && requestActive && state.sessionID) {
-			if (!(await isSessionBusy(state))) {
+			if ((await getSessionStatus(state)) === "idle") {
 				console.error(
 					`\n${ansi.BRIGHT_BLACK}Event stream stalled but the session is idle on the server; finishing the turn${ansi.RESET}`,
 				);

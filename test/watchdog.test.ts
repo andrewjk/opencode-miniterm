@@ -208,4 +208,51 @@ describe("event stream watchdog", () => {
 		stopEventListener();
 		await listener;
 	});
+
+	it("should not finish the turn while the server is retrying a stalled stream", async () => {
+		const sub = hangingSubscribe();
+		const state = createMockState({
+			event: { subscribe: sub.subscribe },
+			session: {
+				status: async () => ({
+					data: { ses_1: { type: "retry", attempt: 1, message: "timed out", next: 0 } },
+					error: undefined,
+				}),
+			},
+		});
+
+		const { listener } = await startSettledListener(state);
+		startRequestTracking(state);
+		expect(isRequestActive()).toBe(true);
+
+		markEventReceived(Date.now() - watchdogConfig.stallTimeoutMs - 1);
+		await watchdogTick(state);
+
+		expect(isRequestActive()).toBe(true);
+
+		stopEventListener();
+		await listener;
+	});
+
+	it("should not finish the turn when the session status is unknown", async () => {
+		const sub = hangingSubscribe();
+		const state = createMockState({
+			event: { subscribe: sub.subscribe },
+			session: {
+				status: async () => ({ data: {}, error: undefined }),
+			},
+		});
+
+		const { listener } = await startSettledListener(state);
+		startRequestTracking(state);
+		expect(isRequestActive()).toBe(true);
+
+		markEventReceived(Date.now() - watchdogConfig.stallTimeoutMs - 1);
+		await watchdogTick(state);
+
+		expect(isRequestActive()).toBe(true);
+
+		stopEventListener();
+		await listener;
+	});
 });
