@@ -1,8 +1,8 @@
-import type { OpencodeClient } from "@opencode-ai/sdk";
 import { consoleRenderers, gfm, transform } from "allmark";
 import * as ansi from "./ansi";
 import { config } from "./config";
 import { afterOutputPaint, navigateToPromptRow } from "./input";
+import type { OpenCodeClient } from "./opencode";
 import type { State } from "./types";
 import { formatDuration } from "./utils";
 
@@ -478,58 +478,39 @@ export function resumeAnimation(state: State): void {
 	startAnimation(state, requestStartTime ?? undefined);
 }
 
-
-export async function getActiveModel(client: OpencodeClient): Promise<string> {
+export async function getActiveModel(client: OpenCodeClient): Promise<string> {
 	let modelName = "";
 	try {
-		const providersResult = await			client.config.providers()
-		if (!providersResult.error) {
-			const providers = providersResult.data?.providers || [];
-			for (const provider of providers) {
-				const models = Object.values(provider.models || {});
-				for (const model of models) {
-					if (provider.id === config.providerID && model.id === config.modelID) {
-						modelName = model.name || model.id;
-						break;
-					}
-				}
-				if (modelName) break;
-			}
-		}
+		const modelsResult = await client.model.list({ location: { directory: process.cwd() } });
+		const model = modelsResult.data.find(
+			(m) => m.providerID === config.providerID && m.modelID === config.modelID,
+		);
+		if (model) modelName = model.name || model.modelID;
 	} catch (error) {}
 	return modelName;
 }
 
-export async function getActiveDisplay(client: OpencodeClient): Promise<string> {
+export async function getActiveDisplay(client: OpenCodeClient): Promise<string> {
 	let agentName = "";
 	let providerName = "";
 	let modelName = "";
+	const location = { directory: process.cwd() };
 	try {
-		const [agentsResult, providersResult] = await Promise.all([
-			client.app.agents(),
-			client.config.providers(),
+		const [agentsResult, providersResult, modelsResult] = await Promise.all([
+			client.agent.list({ location }),
+			client.provider.list({ location }),
+			client.model.list({ location }),
 		]);
-		if (!agentsResult.error) {
-			const agents = agentsResult.data || [];
-			const agent = agents.find((a) => a.name === config.agentID);
-			if (agent) {
-				agentName = agent.name.substring(0, 1).toUpperCase() + agent.name.substring(1);
-			}
+		const agent = agentsResult.data.find((a) => a.id === config.agentID);
+		if (agent) {
+			agentName = agent.name.substring(0, 1).toUpperCase() + agent.name.substring(1);
 		}
-		if (!providersResult.error) {
-			const providers = providersResult.data?.providers || [];
-			for (const provider of providers) {
-				const models = Object.values(provider.models || {});
-				for (const model of models) {
-					if (provider.id === config.providerID && model.id === config.modelID) {
-						providerName = provider.name;
-						modelName = model.name || model.id;
-						break;
-					}
-				}
-				if (providerName) break;
-			}
-		}
+		const provider = providersResult.data.find((p) => p.id === config.providerID);
+		if (provider) providerName = provider.name;
+		const model = modelsResult.data.find(
+			(m) => m.providerID === config.providerID && m.modelID === config.modelID,
+		);
+		if (model) modelName = model.name || model.modelID;
 	} catch (error) {}
 
 	const parts: string[] = [];
@@ -549,11 +530,9 @@ export async function getActiveDisplay(client: OpencodeClient): Promise<string> 
 
 export async function updateSessionTitle(state: State): Promise<void> {
 	try {
-		const result = await state.client.session.get({
-			path: { id: state.sessionID },
-		});
-		if (!result.error && result.data?.title) {
-			setTerminalTitle(result.data.title);
+		const info = await state.client.session.get({ sessionID: state.sessionID });
+		if (info.title) {
+			setTerminalTitle(info.title);
 		} else {
 			setTerminalTitle(state.sessionID.substring(0, 8));
 		}

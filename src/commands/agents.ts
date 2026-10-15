@@ -1,4 +1,3 @@
-import type { Agent, OpencodeClient } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
 import { getActiveDisplay, writePrompt } from "../render";
@@ -26,16 +25,10 @@ let command: Command = {
 export default command;
 
 async function run(state: State): Promise<void> {
-	const result = await state.client.app.agents();
+	const result = await state.client.agent.list({ location: { directory: process.cwd() } });
 
-	if (result.error) {
-		throw new Error(
-			`Failed to fetch agents (${result.response.status}): ${JSON.stringify(result.error)}`,
-		);
-	}
-
-	agentList = (result.data || []).map((agent: Agent) => ({
-		id: agent.name,
+	agentList = (result.data || []).map((agent) => ({
+		id: agent.id,
 		name: agent.name,
 	}));
 

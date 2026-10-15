@@ -6,24 +6,12 @@ import { drainPendingPrompt } from "./server";
 import type { State } from "./types";
 import { wrapLines } from "./wrap";
 
-interface PermissionEvent {
-	type: "permission.asked" | "permission.updated";
-	properties: {
-		id: string;
-		sessionID: string;
-		permission: string;
-		patterns?: string[];
-		pattern?: string | string[];
-		title?: string;
-		always?: string[];
-		tool?: {
-			messageID: string;
-			callID: string;
-		};
-		metadata?: {
-			[key: string]: unknown;
-		};
-	};
+export interface PermissionRequest {
+	id: string;
+	sessionID: string;
+	action: string;
+	resources: string[];
+	message?: string;
 }
 
 interface PermissionState {
@@ -44,23 +32,20 @@ export function getPermissionState(): PermissionState | null {
 	return permissionState;
 }
 
-export function startPermission(event: PermissionEvent, state: State): PermissionState {
+export function startPermission(request: PermissionRequest, state: State): PermissionState {
 	stopAnimation();
 	process.stdout.write(ansi.CURSOR_SHOW);
 
 	currentState = state;
 
-	const props = event.properties;
-	const patterns =
-		props.patterns ||
-		(Array.isArray(props.pattern) ? props.pattern : props.pattern ? [props.pattern] : []);
-	const title = props.title || formatPermissionTitle(props.permission, patterns);
+	const patterns = request.resources ?? [];
+	const title = request.message || formatPermissionTitle(request.action, patterns);
 
 	permissionState = {
 		active: true,
-		permissionID: props.id,
-		sessionID: props.sessionID,
-		permission: props.permission,
+		permissionID: request.id,
+		sessionID: request.sessionID,
+		permission: request.action,
 		title,
 		patterns,
 		selectedIndex: 0,
@@ -140,14 +125,11 @@ async function submitResponse(optionIndex: number): Promise<void> {
 	resetInputBufferState();
 
 	try {
-		const result = await stateCopy.client.postSessionIdPermissionsPermissionId({
-			path: { id: sessionID, permissionID },
-			body: { response },
+		await stateCopy.client.permission.reply({
+			sessionID,
+			requestID: permissionID,
+			decision: response,
 		});
-
-		if (result.error) {
-			console.error(`${ansi.RED}Failed to respond to permission:${ansi.RESET}`, result.error);
-		}
 	} catch (error) {
 		console.error(`${ansi.RED}Failed to respond to permission:${ansi.RESET}`, error);
 	}

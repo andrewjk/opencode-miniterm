@@ -45,23 +45,20 @@ describe("processEvent error handling", () => {
 		});
 	});
 
-	it("should show the session.error message at the end of the turn", async () => {
+	it("should show the execution error message at the end of the turn", async () => {
 		const state = createMockState();
 
 		await processEvent(state, {
-			type: "session.error",
-			properties: {
+			type: "session.execution.failed",
+			data: {
 				sessionID: "ses_1",
-				error: {
-					name: "APIError",
-					data: { message: "boom", statusCode: 403, isRetryable: false },
-				},
+				error: { type: "APIError", message: "boom", status: 403 },
 			},
 		} as any);
 
 		await processEvent(state, {
 			type: "session.idle",
-			properties: { sessionID: "ses_1" },
+			data: { sessionID: "ses_1" },
 		} as any);
 
 		const logOutput = logSpy.mock.calls.map((c: any[]) => String(c[0])).join("\n");
@@ -70,41 +67,20 @@ describe("processEvent error handling", () => {
 		expect(logOutput).not.toContain("Completed in");
 	});
 
-	it("should show the error field on the assistant message", async () => {
+	it("should show the error from a failed step", async () => {
 		const state = createMockState();
 
 		await processEvent(state, {
-			type: "message.updated",
-			properties: {
+			type: "session.step.failed",
+			data: {
 				sessionID: "ses_1",
-				info: {
-					id: "msg_1",
-					role: "assistant",
-					sessionID: "ses_1",
-					parentID: "msg_0",
-					modelID: "deepseek-v4-flash",
-					providerID: "opencode-go",
-					mode: "build",
-					path: { cwd: "/tmp", root: "/tmp" },
-					cost: 0,
-					tokens: {
-						input: 0,
-						output: 0,
-						reasoning: 0,
-						cache: { read: 0, write: 0 },
-					},
-					time: { created: 0 },
-					error: {
-						name: "APIError",
-						data: { message: "model not available", isRetryable: false },
-					},
-				},
+				error: { type: "APIError", message: "model not available" },
 			},
 		} as any);
 
 		await processEvent(state, {
 			type: "session.idle",
-			properties: { sessionID: "ses_1" },
+			data: { sessionID: "ses_1" },
 		} as any);
 
 		const logOutput = logSpy.mock.calls.map((c: any[]) => String(c[0])).join("\n");
@@ -118,7 +94,7 @@ describe("processEvent error handling", () => {
 
 		await processEvent(state, {
 			type: "session.idle",
-			properties: { sessionID: "ses_1" },
+			data: { sessionID: "ses_1" },
 		} as any);
 
 		const logOutput = logSpy.mock.calls.map((c: any[]) => String(c[0])).join("\n");
@@ -169,7 +145,7 @@ describe("following an externally-started request", () => {
 
 		await processEvent(state, {
 			type: "session.status",
-			properties: { sessionID: "ses_1", status: { type: "busy" } },
+			data: { sessionID: "ses_1", status: { type: "busy" } },
 		} as any);
 
 		expect(isRequestActive()).toBe(true);
@@ -180,7 +156,7 @@ describe("following an externally-started request", () => {
 
 		await processEvent(state, {
 			type: "session.status",
-			properties: { sessionID: "ses_other", status: { type: "busy" } },
+			data: { sessionID: "ses_other", status: { type: "busy" } },
 		} as any);
 
 		expect(isRequestActive()).toBe(false);
@@ -191,28 +167,29 @@ describe("following an externally-started request", () => {
 
 		await processEvent(state, {
 			type: "session.status",
-			properties: { sessionID: "ses_1", status: { type: "busy" } },
+			data: { sessionID: "ses_1", status: { type: "busy" } },
 		} as any);
 
 		await processEvent(state, {
-			type: "message.part.updated",
-			properties: {
+			type: "session.text.started",
+			data: { sessionID: "ses_1", assistantMessageID: "msg_1", ordinal: 0 },
+		} as any);
+
+		await processEvent(state, {
+			type: "session.text.delta",
+			data: {
 				sessionID: "ses_1",
-				part: {
-					id: "prt_1",
-					type: "text",
-					text: "hello from another client",
-					messageID: "msg_1",
-					sessionID: "ses_1",
-				},
+				assistantMessageID: "msg_1",
+				ordinal: 0,
+				delta: "hello from another client",
 			},
 		} as any);
 
-		expect(state.accumulatedResponse.some((p) => p.key === "prt_1")).toBe(true);
+		expect(state.accumulatedResponse.some((p) => p.key === "text:msg_1:0")).toBe(true);
 
 		await processEvent(state, {
 			type: "session.idle",
-			properties: { sessionID: "ses_1" },
+			data: { sessionID: "ses_1" },
 		} as any);
 
 		expect(isRequestActive()).toBe(false);
@@ -224,26 +201,22 @@ describe("following an externally-started request", () => {
 		const state = createMockState();
 
 		await processEvent(state, {
-			type: "message.part.updated",
-			properties: {
+			type: "session.tool.input.started",
+			data: { sessionID: "ses_1", assistantMessageID: "msg_1", id: "call_1", name: "bash" },
+		} as any);
+
+		await processEvent(state, {
+			type: "session.tool.called",
+			data: {
 				sessionID: "ses_1",
-				part: {
-					id: "prt_1",
-					messageID: "msg_1",
-					sessionID: "ses_1",
-					type: "tool",
-					tool: "bash",
-					callID: "call_1",
-					state: {
-						status: "running",
-						input: { command: "git status && git log --oneline -10" },
-						time: { start: 0 },
-					},
-				},
+				assistantMessageID: "msg_1",
+				id: "call_1",
+				input: { command: "git status && git log --oneline -10" },
+				executed: true,
 			},
 		} as any);
 
-		const part = state.accumulatedResponse.find((p) => p.key === "prt_1");
+		const part = state.accumulatedResponse.find((p) => p.key === "tool:call_1");
 		expect(part?.title).toBe("tool");
 		expect(part?.text).toContain("$ bash:");
 		expect(part?.text).toContain("git status && git log --oneline -10");
@@ -253,26 +226,22 @@ describe("following an externally-started request", () => {
 		const state = createMockState();
 
 		await processEvent(state, {
-			type: "message.part.updated",
-			properties: {
+			type: "session.tool.input.started",
+			data: { sessionID: "ses_1", assistantMessageID: "msg_1", id: "call_1", name: "bash" },
+		} as any);
+
+		await processEvent(state, {
+			type: "session.tool.called",
+			data: {
 				sessionID: "ses_1",
-				part: {
-					id: "prt_1",
-					messageID: "msg_1",
-					sessionID: "ses_1",
-					type: "tool",
-					tool: "bash",
-					callID: "call_1",
-					state: {
-						status: "running",
-						input: { command: "ls\ncd foo\necho hi" },
-						time: { start: 0 },
-					},
-				},
+				assistantMessageID: "msg_1",
+				id: "call_1",
+				input: { command: "ls\ncd foo\necho hi" },
+				executed: true,
 			},
 		} as any);
 
-		const part = state.accumulatedResponse.find((p) => p.key === "prt_1");
+		const part = state.accumulatedResponse.find((p) => p.key === "tool:call_1");
 		expect(part?.text).toContain("$ bash:");
 		expect(part?.text).toContain("ls…");
 		expect(part?.text).not.toContain("cd foo");
@@ -282,26 +251,22 @@ describe("following an externally-started request", () => {
 		const state = createMockState();
 
 		await processEvent(state, {
-			type: "message.part.updated",
-			properties: {
+			type: "session.tool.input.started",
+			data: { sessionID: "ses_1", assistantMessageID: "msg_1", id: "call_1", name: "bash" },
+		} as any);
+
+		await processEvent(state, {
+			type: "session.tool.called",
+			data: {
 				sessionID: "ses_1",
-				part: {
-					id: "prt_1",
-					messageID: "msg_1",
-					sessionID: "ses_1",
-					type: "tool",
-					tool: "bash",
-					callID: "call_1",
-					state: {
-						status: "running",
-						input: { command: "a".repeat(100) },
-						time: { start: 0 },
-					},
-				},
+				assistantMessageID: "msg_1",
+				id: "call_1",
+				input: { command: "a".repeat(100) },
+				executed: true,
 			},
 		} as any);
 
-		const part = state.accumulatedResponse.find((p) => p.key === "prt_1");
+		const part = state.accumulatedResponse.find((p) => p.key === "tool:call_1");
 		expect(part?.text).toContain(`${"a".repeat(67)}…`);
 	});
 
@@ -309,26 +274,22 @@ describe("following an externally-started request", () => {
 		const state = createMockState();
 
 		await processEvent(state, {
-			type: "message.part.updated",
-			properties: {
+			type: "session.tool.input.started",
+			data: { sessionID: "ses_1", assistantMessageID: "msg_1", id: "call_1", name: "read" },
+		} as any);
+
+		await processEvent(state, {
+			type: "session.tool.called",
+			data: {
 				sessionID: "ses_1",
-				part: {
-					id: "prt_1",
-					messageID: "msg_1",
-					sessionID: "ses_1",
-					type: "tool",
-					tool: "read",
-					callID: "call_1",
-					state: {
-						status: "running",
-						input: { filePath: "line one\nline two\nline three" },
-						time: { start: 0 },
-					},
-				},
+				assistantMessageID: "msg_1",
+				id: "call_1",
+				input: { filePath: "line one\nline two\nline three" },
+				executed: true,
 			},
 		} as any);
 
-		const part = state.accumulatedResponse.find((p) => p.key === "prt_1");
+		const part = state.accumulatedResponse.find((p) => p.key === "tool:call_1");
 		expect(part?.text).toContain("line one\nline two\nline three");
 		expect(part?.text).not.toContain("…");
 	});
@@ -336,7 +297,7 @@ describe("following an externally-started request", () => {
 	it("should start tracking when switching to a session that is already busy", async () => {
 		const state = createMockState({
 			session: {
-				status: async () => ({ data: { ses_1: { type: "busy" } } }),
+				active: async () => ({ ses_1: { type: "running" } }),
 			},
 		});
 
@@ -348,7 +309,7 @@ describe("following an externally-started request", () => {
 	it("should not start tracking when switching to an idle session", async () => {
 		const state = createMockState({
 			session: {
-				status: async () => ({ data: { ses_1: { type: "idle" } } }),
+				active: async () => ({}),
 			},
 		});
 
@@ -363,12 +324,12 @@ describe("following an externally-started request", () => {
 		for (let i = 0; i < 600; i++) {
 			await processEvent(state, {
 				type: "server.heartbeat",
-				properties: { n: i },
+				data: { n: i },
 			} as any);
 		}
 
 		expect(state.allEvents.length).toBe(500);
-		expect((state.allEvents[0] as any).properties.n).toBe(100);
-		expect((state.allEvents[state.allEvents.length - 1] as any).properties.n).toBe(599);
+		expect((state.allEvents[0] as any).data.n).toBe(100);
+		expect((state.allEvents[state.allEvents.length - 1] as any).data.n).toBe(599);
 	});
 });

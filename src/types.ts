@@ -1,6 +1,6 @@
-import { createOpencodeClient } from "@opencode-ai/sdk";
-import type { Event, OpencodeClient } from "@opencode-ai/sdk";
+import type { OpenCodeEvent } from "@opencode/client";
 import type { Key } from "node:readline";
+import type { OpenCodeClient } from "./opencode";
 
 export interface Command {
 	name: string;
@@ -11,11 +11,11 @@ export interface Command {
 }
 
 export interface State {
-	client: ReturnType<typeof createOpencodeClient>;
+	client: OpenCodeClient;
 	sessionID: string;
 	renderedLines: string[];
 	accumulatedResponse: AccumulatedPart[];
-	allEvents: Event[];
+	allEvents: OpenCodeEvent[];
 	lastFileAfter: Map<string, string>;
 	write: (text: string) => void;
 	shutdown: () => void;

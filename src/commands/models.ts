@@ -27,28 +27,22 @@ let modelSearchString = "";
 let modelFilteredIndices: number[] = [];
 
 async function run(state: State): Promise<void> {
-	const result = await state.client.config.providers();
+	const location = { directory: process.cwd() };
+	const [providersResult, modelsResult] = await Promise.all([
+		state.client.provider.list({ location }),
+		state.client.model.list({ location }),
+	]);
 
-	if (result.error) {
-		throw new Error(
-			`Failed to fetch models (${result.response.status}): ${JSON.stringify(result.error)}`,
-		);
-	}
+	const providerNames = new Map(providersResult.data.map((p) => [p.id, p.name]));
 
-	const providers = result.data?.providers || [];
-
-	modelList = [];
-	for (const provider of providers) {
-		const models = Object.values(provider.models || {});
-		for (const model of models) {
-			modelList.push({
-				providerID: provider.id,
-				providerName: provider.name,
-				modelID: model.id,
-				modelName: model.name || model.id,
-			});
-		}
-	}
+	modelList = modelsResult.data
+		.filter((model) => model.enabled !== false)
+		.map((model) => ({
+			providerID: model.providerID,
+			providerName: providerNames.get(model.providerID) || model.providerID,
+			modelID: model.modelID,
+			modelName: model.name || model.modelID,
+		}));
 
 	modelList.sort(
 		(a, b) =>

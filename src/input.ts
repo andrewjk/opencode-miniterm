@@ -1,4 +1,3 @@
-import type { Part } from "@opencode-ai/sdk";
 import { glob } from "node:fs/promises";
 import { stat } from "node:fs/promises";
 import { type Key } from "node:readline";
@@ -721,21 +720,12 @@ export function resetInputBufferState(): void {
 
 export async function loadSessionHistory(state: State): Promise<string[]> {
 	try {
-		const result = await state.client.session.messages({
-			path: { id: state.sessionID },
-		});
-		if (result.error || !result.data) {
-			return [];
-		}
+		const result = await state.client.message.list({ sessionID: state.sessionID });
 
 		const history: string[] = [];
 		for (const msg of result.data) {
-			if (msg.info.role === "user") {
-				const textParts = msg.parts
-					.filter((p: Part) => p.type === "text")
-					.map((p: Part) => (p as any).text || "")
-					.filter(Boolean);
-				const text = textParts.join("").trim();
+			if (msg.type === "user") {
+				const text = (msg.text || "").trim();
 				if (text && !text.startsWith("/")) {
 					history.push(text);
 				}

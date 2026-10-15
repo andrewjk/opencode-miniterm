@@ -16,15 +16,8 @@ async function run(state: State): Promise<void> {
 
 	console.log("Fetching session messages...");
 
-	const messagesRes = await state.client.session.messages({
-		path: { id: config.sessionIDs[cwd] },
-	});
-
-	if (messagesRes.error) {
-		throw new Error(
-			`Failed to fetch messages (${messagesRes.response.status}): ${JSON.stringify(messagesRes.error)}`,
-		);
-	}
+	const sessionID = config.sessionIDs[cwd]!;
+	const messagesRes = await state.client.message.list({ sessionID, order: "desc" });
 
 	const messages = messagesRes.data;
 
@@ -33,32 +26,19 @@ async function run(state: State): Promise<void> {
 		return;
 	}
 
-	const lastMessage = messages[messages.length - 1];
+	const lastMessage = messages.find((m) => m.type === "assistant");
 
-	if (!lastMessage || !lastMessage.info) {
-		console.log("No valid message to undo.\n");
-		return;
-	}
-
-	if (lastMessage.info.role !== "assistant") {
+	if (!lastMessage) {
 		console.log("Last message is not an AI response, nothing to undo.\n");
 		return;
 	}
 
-	console.log(`Reverting last assistant message (${lastMessage.info.id})...`);
+	console.log(`Reverting last assistant message (${lastMessage.id})...`);
 
-	const revertRes = await state.client.session.revert({
-		path: { id: config.sessionIDs[process.cwd()]! },
-		body: {
-			messageID: lastMessage.info.id,
-		},
+	await state.client.session.revert.stage({
+		sessionID: config.sessionIDs[process.cwd()]!,
+		messageID: lastMessage.id,
 	});
-
-	if (revertRes.error) {
-		throw new Error(
-			`Failed to revert message (${revertRes.response.status}): ${JSON.stringify(revertRes.error)}`,
-		);
-	}
 
 	console.log("Successfully reverted last message.\n");
 }

@@ -25,15 +25,11 @@ async function run(state: State): Promise<void> {
 }
 
 async function createSession(state: State): Promise<string> {
-	const result = await state.client.session.create({
-		body: {},
+	const info = await state.client.session.create({
+		agent: config.agentID,
+		model: { id: config.modelID, providerID: config.providerID },
+		location: { directory: process.cwd() },
 	});
 
-	if (result.error) {
-		throw new Error(
-			`Failed to create session (${result.response.status}): ${JSON.stringify(result.error)}`,
-		);
-	}
-
-	return result.data.id;
+	return info.id;
 }

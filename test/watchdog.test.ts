@@ -17,9 +17,20 @@ describe("event stream watchdog", () => {
 	let writeSpy: ReturnType<typeof spyOn>;
 	let logSpy: ReturnType<typeof spyOn>;
 	let errorSpy: ReturnType<typeof spyOn>;
-	let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 	const originalColumns = process.stdout.columns;
 	let configSnapshot = { ...watchdogConfig };
+
+	interface MockClientOptions {
+		subscribe: (options: any) => AsyncIterable<any>;
+		active?: () => Promise<any>;
+		info?: () => Promise<any>;
+	}
+
+	const makeClient = (options: MockClientOptions) => ({
+		event: { subscribe: options.subscribe },
+		session: { active: options.active ?? (async () => ({})) },
+		server: { info: options.info ?? (async () => ({})) },
+	});
 
 	const createMockState = (client?: any): State => ({
 		client,
@@ -34,15 +45,13 @@ describe("event stream watchdog", () => {
 
 	const hangingSubscribe = () => {
 		let calls = 0;
-		const subscribe = async (options: any) => {
+		const subscribe = (options: any) => {
 			calls++;
-			return {
-				stream: (async function* () {
-					while (!options.signal.aborted) {
-						await new Promise((r) => setTimeout(r, 5));
-					}
-				})(),
-			};
+			return (async function* () {
+				while (!options.signal.aborted) {
+					await new Promise((r) => setTimeout(r, 5));
+				}
+			})();
 		};
 		return {
 			get calls() {
@@ -54,9 +63,9 @@ describe("event stream watchdog", () => {
 
 	const cleanEndingSubscribe = () => {
 		let calls = 0;
-		const subscribe = async () => {
+		const subscribe = () => {
 			calls++;
-			return { stream: (async function* () {})() };
+			return (async function* () {})();
 		};
 		return {
 			get calls() {
@@ -88,9 +97,6 @@ describe("event stream watchdog", () => {
 		writeSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
 		logSpy = spyOn(console, "log").mockImplementation(() => {});
 		errorSpy = spyOn(console, "error").mockImplementation(() => {});
-		fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
-			(async () => new Response("{}", { status: 200 })) as any,
-		);
 		Object.defineProperty(process.stdout, "columns", {
 			value: 80,
 			configurable: true,
@@ -107,7 +113,6 @@ describe("event stream watchdog", () => {
 		writeSpy.mockRestore();
 		logSpy.mockRestore();
 		errorSpy.mockRestore();
-		fetchSpy.mockRestore();
 		Object.defineProperty(process.stdout, "columns", {
 			value: originalColumns,
 			configurable: true,
@@ -116,7 +121,7 @@ describe("event stream watchdog", () => {
 
 	it("should resubscribe when the event stream ends cleanly", async () => {
 		const sub = cleanEndingSubscribe();
-		const state = createMockState({ event: { subscribe: sub.subscribe } });
+		const state = createMockState(makeClient({ subscribe: sub.subscribe }));
 
 		const listener = startEventListener(state);
 		await waitFor(() => sub.calls >= 2);
@@ -128,23 +133,38 @@ describe("event stream watchdog", () => {
 
 	it("should not probe the health endpoint while events keep arriving", async () => {
 		const sub = hangingSubscribe();
-		const state = createMockState({ event: { subscribe: sub.subscribe } });
+		let infoCalls = 0;
+		const state = createMockState(
+			makeClient({
+				subscribe: sub.subscribe,
+				info: async () => {
+					infoCalls++;
+					return {};
+				},
+			}),
+		);
 
 		await startSettledListener(state);
 		markEventReceived();
 		await watchdogTick(state);
 
-		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(infoCalls).toBe(0);
 	});
 
 	it("should force a reconnect when the health probe fails", async () => {
 		const sub = hangingSubscribe();
-		const state = createMockState({ event: { subscribe: sub.subscribe } });
+		let infoCalls = 0;
+		const state = createMockState(
+			makeClient({
+				subscribe: sub.subscribe,
+				info: async () => {
+					infoCalls++;
+					throw new Error("connection refused");
+				},
+			}),
+		);
 
 		const { listener } = await startSettledListener(state);
-		fetchSpy.mockImplementation((async () => {
-			throw new Error("connection refused");
-		}) as any);
 		markEventReceived(Date.now() - watchdogConfig.idleStallTimeoutMs - 1);
 		await watchdogTick(state);
 
@@ -153,20 +173,19 @@ describe("event stream watchdog", () => {
 		await listener;
 
 		expect(sub.calls).toBeGreaterThanOrEqual(2);
-		const requestedUrl = String(fetchSpy.mock.calls[0]![0]);
-		expect(requestedUrl).toContain("/global/health");
+		expect(infoCalls).toBeGreaterThanOrEqual(1);
 		const errorOutput = errorSpy.mock.calls.map((c: any[]) => c.join(" ")).join("\n");
 		expect(errorOutput).toContain("reconnecting");
 	});
 
 	it("should tolerate one silent probe while busy and reconnect after a second", async () => {
 		const sub = hangingSubscribe();
-		const state = createMockState({
-			event: { subscribe: sub.subscribe },
-			session: {
-				status: async () => ({ data: { ses_1: { type: "busy" } }, error: undefined }),
-			},
-		});
+		const state = createMockState(
+			makeClient({
+				subscribe: sub.subscribe,
+				active: async () => ({ ses_1: { type: "running" } }),
+			}),
+		);
 
 		const { listener } = await startSettledListener(state);
 		setRequestActive(true);
@@ -186,12 +205,12 @@ describe("event stream watchdog", () => {
 
 	it("should finish the turn when the server reports idle during a stall", async () => {
 		const sub = hangingSubscribe();
-		const state = createMockState({
-			event: { subscribe: sub.subscribe },
-			session: {
-				status: async () => ({ data: { ses_1: { type: "idle" } }, error: undefined }),
-			},
-		});
+		const state = createMockState(
+			makeClient({
+				subscribe: sub.subscribe,
+				active: async () => ({}),
+			}),
+		);
 
 		const { listener } = await startSettledListener(state);
 		startRequestTracking(state);
@@ -209,17 +228,14 @@ describe("event stream watchdog", () => {
 		await listener;
 	});
 
-	it("should not finish the turn while the server is retrying a stalled stream", async () => {
+	it("should not finish the turn while the server reports the session running", async () => {
 		const sub = hangingSubscribe();
-		const state = createMockState({
-			event: { subscribe: sub.subscribe },
-			session: {
-				status: async () => ({
-					data: { ses_1: { type: "retry", attempt: 1, message: "timed out", next: 0 } },
-					error: undefined,
-				}),
-			},
-		});
+		const state = createMockState(
+			makeClient({
+				subscribe: sub.subscribe,
+				active: async () => ({ ses_1: { type: "running" } }),
+			}),
+		);
 
 		const { listener } = await startSettledListener(state);
 		startRequestTracking(state);
@@ -234,14 +250,16 @@ describe("event stream watchdog", () => {
 		await listener;
 	});
 
-	it("should not finish the turn when the session status is unknown", async () => {
+	it("should not finish the turn when the session status query fails", async () => {
 		const sub = hangingSubscribe();
-		const state = createMockState({
-			event: { subscribe: sub.subscribe },
-			session: {
-				status: async () => ({ data: {}, error: undefined }),
-			},
-		});
+		const state = createMockState(
+			makeClient({
+				subscribe: sub.subscribe,
+				active: async () => {
+					throw new Error("boom");
+				},
+			}),
+		);
 
 		const { listener } = await startSettledListener(state);
 		startRequestTracking(state);

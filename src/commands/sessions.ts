@@ -1,4 +1,3 @@
-import type { Session } from "@opencode-ai/sdk";
 import readline, { type Key } from "node:readline";
 import { config, saveConfig } from "../config";
 import { updateSessionTitle, writePrompt } from "../render";
@@ -30,15 +29,9 @@ let sessionSearchString = "";
 let sessionFilteredIndices: number[] = [];
 
 async function run(state: State): Promise<void> {
-	const result = await state.client.session.list();
+	const result = await state.client.session.list({ directory: process.cwd() });
 
-	if (result.error) {
-		throw new Error(
-			`Failed to fetch sessions (${result.response.status}): ${JSON.stringify(result.error)}`,
-		);
-	}
-
-	const sessions = (result.data as Session[]) || [];
+	const sessions = result.data || [];
 
 	if (sessions.length === 0) {
 		console.log("No sessions found. Creating a new session...");
@@ -170,17 +163,13 @@ async function handleKey(state: State, key: Key, str?: string) {
 }
 
 async function createSession(state: State): Promise<string> {
-	const result = await state.client.session.create({
-		body: {},
+	const info = await state.client.session.create({
+		agent: config.agentID,
+		model: { id: config.modelID, providerID: config.providerID },
+		location: { directory: process.cwd() },
 	});
 
-	if (result.error) {
-		throw new Error(
-			`Failed to create session (${result.response.status}): ${JSON.stringify(result.error)}`,
-		);
-	}
-
-	return result.data.id;
+	return info.id;
 }
 
 function clearSessionList() {

@@ -1,21 +1,13 @@
 #!/usr/bin/env bun
 
-import { createOpencodeServer } from "@opencode-ai/sdk";
 import readline from "node:readline";
 import * as ansi from "./ansi";
 import { config, loadConfig, saveConfig } from "./config";
 import { handleKeyPress, loadSessionHistory } from "./input";
+import { connect } from "./opencode";
 import { getActiveDisplay, updateSessionTitle, writePrompt } from "./render";
-import {
-	createClient,
-	createSession,
-	startEventListener,
-	stopEventListener,
-	validateSession,
-} from "./server";
+import { createSession, startEventListener, stopEventListener, validateSession } from "./server";
 import type { State } from "./types";
-
-let server: Awaited<ReturnType<typeof createOpencodeServer>> | undefined;
 
 let state: State = {
 	// @ts-ignore This will get set
@@ -38,15 +30,17 @@ async function main() {
 
 	console.log(`\n${ansi.BRIGHT_BLACK}Connecting to OpenCode server...${ansi.RESET}\n`);
 
-	try {
-		server = await createOpencodeServer();
-	} catch {
-		// Probably the server already exists?
-		// Should figure out a better way to check this
-	}
-
 	const cwd = process.cwd();
-	state.client = createClient(cwd);
+	try {
+		const connection = await connect();
+		state.client = connection.client;
+	} catch (error) {
+		console.error(
+			`${ansi.RED}Failed to connect to the OpenCode service:${ansi.RESET}`,
+			error instanceof Error ? error.message : String(error),
+		);
+		process.exit(1);
+	}
 
 	process.on("SIGINT", () => {
 		process.stdout.write("\n");
@@ -110,7 +104,6 @@ async function main() {
 		writePrompt();
 	} catch (error: any) {
 		console.error("Error:", error.message);
-		server?.close();
 		process.exit(1);
 	}
 }
@@ -123,7 +116,6 @@ function shutdown() {
 	process.stdin.destroy();
 	process.stdout.write(ansi.ENABLE_LINE_WRAP);
 	saveConfig();
-	server?.close();
 	console.log(`${ansi.BRIGHT_BLACK}Goodbye!${ansi.RESET}`);
 	process.exit(0);
 }
