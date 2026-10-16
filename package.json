@@ -29,7 +29,7 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@opencode/client": "^2.0.29",
+		"@opencode/client": "^2.0.30",
 		"allmark": "^1.0.23"
 	}
 }
