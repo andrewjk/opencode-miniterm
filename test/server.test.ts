@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { getPermissionState } from "../src/permission";
 import { stopAnimation } from "../src/render";
 import {
 	isRequestActive,
@@ -331,5 +332,98 @@ describe("following an externally-started request", () => {
 		expect(state.allEvents.length).toBe(500);
 		expect((state.allEvents[0] as any).data.n).toBe(100);
 		expect((state.allEvents[state.allEvents.length - 1] as any).data.n).toBe(599);
+	});
+});
+
+describe("cross-session isolation", () => {
+	let writeSpy: ReturnType<typeof spyOn>;
+	const originalColumns = process.stdout.columns;
+
+	const createMockState = (): State => ({
+		// @ts-ignore this doesn't get used in these paths
+		client: null,
+		sessionID: "ses_1",
+		renderedLines: [],
+		accumulatedResponse: [],
+		allEvents: [],
+		write: () => {},
+		lastFileAfter: new Map(),
+		shutdown: () => {},
+	});
+
+	beforeEach(() => {
+		writeSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
+		Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+	});
+
+	afterEach(() => {
+		writeSpy.mockRestore();
+		Object.defineProperty(process.stdout, "columns", {
+			value: originalColumns,
+			configurable: true,
+		});
+	});
+
+	it("ignores file changes streamed by another session", async () => {
+		const state = createMockState();
+
+		await processEvent(state, {
+			type: "session.step.ended",
+			data: {
+				sessionID: "ses_other",
+				files: ["src/other-project/file.ts"],
+				tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+			},
+		} as any);
+
+		expect(state.accumulatedResponse.some((p) => p.title === "files")).toBe(false);
+	});
+
+	it("renders file changes for the active session", async () => {
+		const state = createMockState();
+
+		await processEvent(state, {
+			type: "session.step.ended",
+			data: {
+				sessionID: "ses_1",
+				files: ["src/mine.ts"],
+				tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+			},
+		} as any);
+
+		const part = state.accumulatedResponse.find((p) => p.title === "files");
+		expect(part?.text).toContain("src/mine.ts");
+	});
+
+	it("ignores text deltas from another session", async () => {
+		const state = createMockState();
+
+		await processEvent(state, {
+			type: "session.text.delta",
+			data: {
+				sessionID: "ses_other",
+				assistantMessageID: "msg_x",
+				ordinal: 0,
+				delta: "leaked text",
+			},
+		} as any);
+
+		expect(state.accumulatedResponse.length).toBe(0);
+	});
+
+	it("ignores a permission request from another session", async () => {
+		const state = createMockState();
+
+		await processEvent(state, {
+			type: "permission.asked",
+			data: {
+				sessionID: "ses_other",
+				id: "perm_1",
+				action: "shell",
+				resources: ["rm -rf /"],
+			},
+		} as any);
+
+		expect(getPermissionState()).toBeNull();
 	});
 });

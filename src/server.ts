@@ -504,11 +504,18 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 	const e = event as any;
 	const d = (e.data ?? {}) as any;
 	const sid: string | undefined = typeof d.sessionID === "string" ? d.sessionID : undefined;
-	const isChild = !!sid && sid !== state.sessionID;
+	// The V2 event stream is global (subscribe can't be scoped to a location),
+	// so it carries events from every session/directory. Classify by owner:
+	//   parent   — our active session
+	//   subagent — a child session we spawned this turn
+	//   foreign  — any other session (another directory, another client)
+	const isParent = !!sid && sid === state.sessionID;
+	const isSubagent = !!sid && activeSubagents.some((s) => s.sessionID === sid);
+	const isForeign = !!sid && !isParent && !isSubagent;
 
 	switch (e.type as string) {
 		case "session.text.started": {
-			if (isChild) break;
+			if (!isParent) break;
 			const key = `text:${d.assistantMessageID}:${d.ordinal}`;
 			if (!findLastPart(state, key)) {
 				state.accumulatedResponse.push({ key, title: "response", text: "" });
@@ -518,10 +525,11 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 
 		case "session.text.delta": {
 			const key = `text:${d.assistantMessageID}:${d.ordinal}`;
-			if (isChild) {
-				if (sid) routeChildTextDelta(state, sid, key, d.delta);
+			if (isSubagent && sid) {
+				routeChildTextDelta(state, sid, key, d.delta);
 				break;
 			}
+			if (!isParent) break;
 			appendPart(state, key, "response", d.delta);
 			streamRender(state);
 			break;
@@ -529,10 +537,11 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 
 		case "session.text.ended": {
 			const key = `text:${d.assistantMessageID}:${d.ordinal}`;
-			if (isChild) {
-				if (sid) routeChildTextEnded(state, sid, key, d.text);
+			if (isSubagent && sid) {
+				routeChildTextEnded(state, sid, key, d.text);
 				break;
 			}
+			if (!isParent) break;
 			setPart(state, key, "response", d.text);
 			await writeToLog(`Response:\n\n${ansi.stripAnsiCodes(String(d.text).trimStart())}\n\n`);
 			streamRender(state);
@@ -540,7 +549,7 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "session.reasoning.started": {
-			if (isChild) break;
+			if (!isParent) break;
 			const key = `reason:${d.assistantMessageID}:${d.ordinal}`;
 			if (!findLastPart(state, key)) {
 				state.accumulatedResponse.push({ key, title: "thinking", text: "" });
@@ -549,14 +558,14 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "session.reasoning.delta": {
-			if (isChild) break;
+			if (!isParent) break;
 			appendPart(state, `reason:${d.assistantMessageID}:${d.ordinal}`, "thinking", d.delta);
 			streamRender(state);
 			break;
 		}
 
 		case "session.reasoning.ended": {
-			if (isChild) break;
+			if (!isParent) break;
 			setPart(state, `reason:${d.assistantMessageID}:${d.ordinal}`, "thinking", d.text);
 			await writeToLog(`Thinking:\n\n${ansi.stripAnsiCodes(String(d.text).trimStart())}\n\n`);
 			streamRender(state);
@@ -569,9 +578,10 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "session.tool.called": {
+			if (!isParent && !isSubagent) break;
 			const name = toolNames.get(`${d.sessionID}:${d.id}`) || "unknown";
-			if (isChild) {
-				if (sid) routeChildTool(state, sid, d.id, name, d.input);
+			if (isSubagent && sid) {
+				routeChildTool(state, sid, d.id, name, d.input);
 				break;
 			}
 			if (name === "subagent" || name === "task" || name === "todowrite" || name === "question") {
@@ -585,11 +595,13 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "session.step.started": {
+			if (!isParent) break;
 			processing = true;
 			break;
 		}
 
 		case "session.step.ended": {
+			if (!isParent) break;
 			if (d.tokens) {
 				lastTokenStats = {
 					input: d.tokens.input ?? 0,
@@ -607,12 +619,13 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "session.step.failed": {
+			if (!isParent) break;
 			if (d.error) lastError = d.error.message || JSON.stringify(d.error);
 			break;
 		}
 
 		case "session.execution.started": {
-			if (!isChild && !requestActive) {
+			if (isParent && !requestActive) {
 				processing = true;
 				startRequestTracking(state);
 			}
@@ -620,44 +633,48 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "session.execution.succeeded": {
-			if (isChild && sid) {
+			if (isSubagent && sid) {
 				completeSubagent(state, sid, "completed");
 				break;
 			}
+			if (!isParent) break;
 			await finishTurn(state);
 			break;
 		}
 
 		case "session.execution.failed": {
-			if (isChild && sid) {
+			if (isSubagent && sid) {
 				completeSubagent(state, sid, "error");
 				break;
 			}
+			if (!isParent) break;
 			if (d.error) lastError = d.error.message || JSON.stringify(d.error);
 			await finishTurn(state);
 			break;
 		}
 
 		case "session.execution.interrupted": {
-			if (isChild && sid) {
+			if (isSubagent && sid) {
 				completeSubagent(state, sid, "completed");
 				break;
 			}
+			if (!isParent) break;
 			await finishTurn(state);
 			break;
 		}
 
 		case "session.idle": {
-			if (isChild) {
-				if (sid) completeSubagent(state, sid, "completed");
+			if (isSubagent && sid) {
+				completeSubagent(state, sid, "completed");
 				break;
 			}
+			if (!isParent) break;
 			await finishTurn(state);
 			break;
 		}
 
 		case "session.status": {
-			if (isChild) break;
+			if (!isParent) break;
 			const status = d.status;
 			if (status?.type === "busy") {
 				if (!requestActive) {
@@ -673,6 +690,7 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "session.retry.scheduled": {
+			if (!isParent) break;
 			showRetry(d.error?.message, d.at);
 			break;
 		}
@@ -699,6 +717,7 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "permission.asked": {
+			if (isForeign) break;
 			dispatchPrompt(state, "permission", {
 				id: d.id,
 				sessionID: d.sessionID,
@@ -710,6 +729,13 @@ export async function processEvent(state: State, event: OpenCodeEvent): Promise<
 		}
 
 		case "form.created": {
+			// `form.created` carries no top-level sessionID, so match on the
+			// form's own session.
+			const formSid = d.form?.sessionID;
+			const owned =
+				!!formSid &&
+				(formSid === state.sessionID || activeSubagents.some((s) => s.sessionID === formSid));
+			if (!owned) break;
 			if (d.form) dispatchPrompt(state, "question", d.form);
 			break;
 		}
